@@ -1,0 +1,142 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "Microsoft Graph .NET SDK",
+  "projectDescription": "Microsoft Graph Client Library for .NET - integrate Office 365, Azure AD, and Microsoft services through a unified developer experience.",
+  "theme": "linden",
+  "primaryColor": "#646464",
+  "lightColor": "#08a8e7",
+  "darkColor": "#cf9b0b",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "core-concepts/overview",
+              "core-concepts/authentication",
+              "core-concepts/graph-service-client",
+              "core-concepts/request-builders",
+              "core-concepts/query-parameters",
+              "core-concepts/collections",
+              "core-concepts/error-handling",
+              "core-concepts/headers"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/working-with-users",
+              "guides/working-with-groups",
+              "guides/working-with-mail",
+              "guides/working-with-files",
+              "guides/working-with-calendar",
+              "guides/batch-requests",
+              "guides/large-file-upload",
+              "guides/change-notifications"
+            ]
+          },
+          {
+            "group": "Migration Guides",
+            "pages": [
+              "migration/upgrade-to-v5",
+              "migration/upgrade-to-v4",
+              "migration/from-v1"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Client",
+            "pages": [
+              "api-reference/graph-service-client",
+              "api-reference/authentication-providers"
+            ]
+          },
+          {
+            "group": "Users & Groups",
+            "pages": [
+              "api-reference/users",
+              "api-reference/groups",
+              "api-reference/directory-objects"
+            ]
+          },
+          {
+            "group": "Mail & Calendar",
+            "pages": [
+              "api-reference/messages",
+              "api-reference/calendar",
+              "api-reference/events"
+            ]
+          },
+          {
+            "group": "Files & Drives",
+            "pages": [
+              "api-reference/drives",
+              "api-reference/drive-items",
+              "api-reference/sites"
+            ]
+          },
+          {
+            "group": "Teams & Communication",
+            "pages": [
+              "api-reference/teams",
+              "api-reference/channels",
+              "api-reference/chats"
+            ]
+          },
+          {
+            "group": "Identity & Access",
+            "pages": [
+              "api-reference/applications",
+              "api-reference/service-principals",
+              "api-reference/oauth2-permission-grants"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Unified Microsoft Graph API access for Office 365, Azure AD, and Microsoft services",
+    "Built with Kiota code generation for modern .NET experience",
+    "Fluent request builder pattern mirroring REST API structure",
+    "Support for .NET Standard 2.0, 2.1, and .NET 5+",
+    "Integrated with Azure.Identity for authentication using TokenCredential",
+    "Comprehensive resource models generated from Microsoft Graph metadata",
+    "Built-in support for query parameters, collections, paging, and error handling",
+    "Bi-weekly updates synchronized with Microsoft Graph API changes"
+  ],
+  "publicApiSurface": [
+    "GraphServiceClient - Main client for Microsoft Graph API",
+    "Me - Access current user's resources",
+    "Users - User management and directory operations",
+    "Groups - Group management and membership",
+    "Applications - Application registration and management",
+    "Drive/Drives - OneDrive and SharePoint file operations",
+    "Messages - Email operations",
+    "Calendar/Events - Calendar and event management",
+    "Teams/Channels - Microsoft Teams integration",
+    "Sites - SharePoint sites access",
+    "DirectoryObjects - Azure AD directory objects",
+    "ServicePrincipals - Service principal management",
+    "Subscriptions - Change notification webhooks",
+    "Batch requests - Batch multiple API calls",
+    "IAuthenticationProvider - Custom authentication implementation",
+    "TokenCredential - Azure.Identity integration",
+    "RequestInformation - Low-level request configuration",
+    "QueryParameters - OData query options (Select, Filter, Expand, OrderBy, Top, Skip)"
+  ]
+}
