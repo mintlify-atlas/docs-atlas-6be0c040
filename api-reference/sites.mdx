@@ -1,0 +1,515 @@
+---
+title: 'Sites'
+description: 'SharePoint site operations in Microsoft Graph'
+---
+
+## Overview
+
+The Sites API provides operations to manage SharePoint sites, lists, and content. Access through `graphClient.Sites`.
+
+## Request Builder
+
+```csharp
+public SitesRequestBuilder Sites { get; }
+```
+
+Accessed via: `graphClient.Sites`
+
+## Get Sites
+
+### Get Root Site
+
+```csharp
+var rootSite = await graphClient.Sites["root"].GetAsync();
+
+Console.WriteLine($"Site: {rootSite.DisplayName}");
+Console.WriteLine($"Web URL: {rootSite.WebUrl}");
+```
+
+### Get Site by ID
+
+```csharp
+var site = await graphClient.Sites["site-id"].GetAsync();
+```
+
+### Get Site by Hostname and Path
+
+```csharp
+var site = await graphClient.Sites["contoso.sharepoint.com:/sites/project"].GetAsync();
+
+// Just hostname (root site)
+var rootSite = await graphClient.Sites["contoso.sharepoint.com"].GetAsync();
+```
+
+### Search Sites
+
+```csharp
+var sites = await graphClient.Sites.GetAsync(config =>
+{
+    config.QueryParameters.Search = "project";
+});
+
+foreach (var site in sites.Value)
+{
+    Console.WriteLine($"{site.DisplayName} - {site.WebUrl}");
+}
+```
+
+### Get Group Site
+
+```csharp
+// Get the site for a Microsoft 365 group
+var groupSite = await graphClient.Groups["group-id"].Sites["root"].GetAsync();
+```
+
+## Site Properties
+
+<ResponseField name="id" type="string">
+  Unique identifier
+</ResponseField>
+
+<ResponseField name="displayName" type="string">
+  Site title
+</ResponseField>
+
+<ResponseField name="webUrl" type="string">
+  URL to view in browser
+</ResponseField>
+
+<ResponseField name="siteCollection" type="SiteCollection">
+  Site collection properties
+</ResponseField>
+
+<ResponseField name="root" type="Root">
+  Present if this is the root site
+</ResponseField>
+
+<ResponseField name="sharePointIds" type="SharePointIds">
+  SharePoint-specific identifiers
+</ResponseField>
+
+## Lists
+
+### Get All Lists
+
+```csharp
+var lists = await graphClient.Sites["site-id"].Lists.GetAsync();
+
+foreach (var list in lists.Value)
+{
+    Console.WriteLine($"{list.DisplayName} - {list.List.Template}");
+}
+```
+
+### Get Specific List
+
+```csharp
+// By ID
+var list = await graphClient.Sites["site-id"].Lists["list-id"].GetAsync();
+
+// By display name
+var lists = await graphClient.Sites["site-id"].Lists.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "displayName eq 'Project Tasks'";
+});
+```
+
+### Create List
+
+```csharp
+var newList = new List
+{
+    DisplayName = "Customer List",
+    List = new ListInfo
+    {
+        Template = "genericList"
+    },
+    Columns = new List<ColumnDefinition>
+    {
+        new ColumnDefinition
+        {
+            Name = "CustomerName",
+            Text = new TextColumn { }
+        },
+        new ColumnDefinition
+        {
+            Name = "Email",
+            Text = new TextColumn { }
+        }
+    }
+};
+
+var list = await graphClient.Sites["site-id"].Lists.PostAsync(newList);
+```
+
+### List Items
+
+```csharp
+var items = await graphClient.Sites["site-id"]
+    .Lists["list-id"]
+    .Items
+    .GetAsync(config =>
+{
+    config.QueryParameters.Expand = new[] { "fields" };
+});
+
+foreach (var item in items.Value)
+{
+    var fields = item.Fields.AdditionalData;
+    Console.WriteLine($"Title: {fields["Title"]}");
+}
+```
+
+### Create List Item
+
+```csharp
+var newItem = new ListItem
+{
+    Fields = new FieldValueSet
+    {
+        AdditionalData = new Dictionary<string, object>
+        {
+            { "Title", "New Customer" },
+            { "CustomerName", "Contoso Ltd" },
+            { "Email", "contact@contoso.com" }
+        }
+    }
+};
+
+var item = await graphClient.Sites["site-id"]
+    .Lists["list-id"]
+    .Items
+    .PostAsync(newItem);
+```
+
+### Update List Item
+
+```csharp
+var updateItem = new ListItem
+{
+    Fields = new FieldValueSet
+    {
+        AdditionalData = new Dictionary<string, object>
+        {
+            { "Title", "Updated Title" },
+            { "Status", "Completed" }
+        }
+    }
+};
+
+await graphClient.Sites["site-id"]
+    .Lists["list-id"]
+    .Items["item-id"]
+    .PatchAsync(updateItem);
+```
+
+### Delete List Item
+
+```csharp
+await graphClient.Sites["site-id"]
+    .Lists["list-id"]
+    .Items["item-id"]
+    .DeleteAsync();
+```
+
+## Drives (Document Libraries)
+
+### Get Site Drive
+
+```csharp
+// Default document library
+var drive = await graphClient.Sites["site-id"].Drive.GetAsync();
+
+// All document libraries
+var drives = await graphClient.Sites["site-id"].Drives.GetAsync();
+
+foreach (var lib in drives.Value)
+{
+    Console.WriteLine($"{lib.Name} - {lib.WebUrl}");
+}
+```
+
+### Access Drive Content
+
+```csharp
+// List files in document library
+var items = await graphClient.Sites["site-id"]
+    .Drive
+    .Root
+    .Children
+    .GetAsync();
+
+foreach (var item in items.Value)
+{
+    Console.WriteLine($"{item.Name} - {item.WebUrl}");
+}
+```
+
+## Columns
+
+### List Columns
+
+```csharp
+var columns = await graphClient.Sites["site-id"]
+    .Lists["list-id"]
+    .Columns
+    .GetAsync();
+
+foreach (var column in columns.Value)
+{
+    Console.WriteLine($"{column.DisplayName} - {column.ColumnGroup}");
+}
+```
+
+### Create Column
+
+```csharp
+// Text column
+var textColumn = new ColumnDefinition
+{
+    Name = "Description",
+    DisplayName = "Description",
+    Text = new TextColumn
+    {
+        AllowMultipleLines = true,
+        MaxLength = 500
+    }
+};
+
+// Choice column
+var choiceColumn = new ColumnDefinition
+{
+    Name = "Status",
+    DisplayName = "Status",
+    Choice = new ChoiceColumn
+    {
+        Choices = new[] { "Not Started", "In Progress", "Completed" },
+        DisplayAs = "dropDownMenu"
+    }
+};
+
+// Number column
+var numberColumn = new ColumnDefinition
+{
+    Name = "Budget",
+    DisplayName = "Budget",
+    Number = new NumberColumn
+    {
+        DecimalPlaces = 2,
+        DisplayAs = "number"
+    }
+};
+
+var column = await graphClient.Sites["site-id"]
+    .Lists["list-id"]
+    .Columns
+    .PostAsync(textColumn);
+```
+
+## Content Types
+
+### List Content Types
+
+```csharp
+var contentTypes = await graphClient.Sites["site-id"]
+    .ContentTypes
+    .GetAsync();
+
+foreach (var ct in contentTypes.Value)
+{
+    Console.WriteLine($"{ct.Name} - {ct.Description}");
+}
+```
+
+### Get List Content Types
+
+```csharp
+var listContentTypes = await graphClient.Sites["site-id"]
+    .Lists["list-id"]
+    .ContentTypes
+    .GetAsync();
+```
+
+## Pages
+
+### List Pages
+
+```csharp
+var pages = await graphClient.Sites["site-id"]
+    .Pages
+    .GetAsync();
+
+foreach (var page in pages.Value)
+{
+    Console.WriteLine($"{page.Title} - {page.WebUrl}");
+}
+```
+
+### Get Page
+
+```csharp
+var page = await graphClient.Sites["site-id"]
+    .Pages["page-id"]
+    .GetAsync();
+
+Console.WriteLine($"Title: {page.Title}");
+Console.WriteLine($"Created: {page.CreatedDateTime}");
+```
+
+## Subsites
+
+```csharp
+var subsites = await graphClient.Sites["site-id"]
+    .Sites
+    .GetAsync();
+
+foreach (var subsite in subsites.Value)
+{
+    Console.WriteLine($"{subsite.DisplayName} - {subsite.WebUrl}");
+}
+```
+
+## Permissions
+
+### List Permissions
+
+```csharp
+var permissions = await graphClient.Sites["site-id"]
+    .Permissions
+    .GetAsync();
+
+foreach (var permission in permissions.Value)
+{
+    Console.WriteLine($"Granted to: {permission.GrantedToIdentitiesV2}");
+    Console.WriteLine($"Roles: {string.Join(", ", permission.Roles)}");
+}
+```
+
+## Site Analytics
+
+```csharp
+var analytics = await graphClient.Sites["site-id"]
+    .Analytics
+    .GetAsync();
+
+var activity = analytics.ItemActivityStats;
+foreach (var stat in activity)
+{
+    Console.WriteLine($"Views: {stat.Access.ActionCount}");
+    Console.WriteLine($"Period: {stat.StartDateTime} to {stat.EndDateTime}");
+}
+```
+
+## Operations
+
+### Get Operations
+
+```csharp
+var operations = await graphClient.Sites["site-id"]
+    .Operations
+    .GetAsync();
+
+foreach (var operation in operations.Value)
+{
+    Console.WriteLine($"Status: {operation.Status}");
+    Console.WriteLine($"Created: {operation.CreatedDateTime}");
+}
+```
+
+## Following Sites
+
+### Follow Site
+
+```csharp
+await graphClient.Sites["site-id"].Follow.PostAsync();
+```
+
+### Unfollow Site
+
+```csharp
+await graphClient.Sites["site-id"].Unfollow.PostAsync();
+```
+
+### List Followed Sites
+
+```csharp
+var followedSites = await graphClient.Me.FollowedSites.GetAsync();
+
+foreach (var site in followedSites.Value)
+{
+    Console.WriteLine($"{site.DisplayName} - {site.WebUrl}");
+}
+```
+
+## Common Patterns
+
+### Get Site by URL
+
+```csharp
+public async Task<Site> GetSiteByUrl(string siteUrl)
+{
+    var uri = new Uri(siteUrl);
+    var hostname = uri.Host;
+    var path = uri.AbsolutePath;
+    
+    var site = await graphClient.Sites[$"{hostname}:{path}"].GetAsync();
+    return site;
+}
+```
+
+### Query List with Filter
+
+```csharp
+var items = await graphClient.Sites["site-id"]
+    .Lists["list-id"]
+    .Items
+    .GetAsync(config =>
+{
+    config.QueryParameters.Expand = new[] { "fields($select=Title,Status,DueDate)" };
+    config.QueryParameters.Filter = "fields/Status eq 'In Progress'";
+    config.QueryParameters.Top = 100;
+});
+```
+
+## Error Handling
+
+```csharp
+using Microsoft.Graph.Models.ODataErrors;
+
+try
+{
+    var site = await graphClient.Sites["site-id"].GetAsync();
+}
+catch (ODataError error)
+{
+    if (error.Error.Code == "itemNotFound")
+    {
+        Console.WriteLine("Site not found");
+    }
+    else if (error.Error.Code == "accessDenied")
+    {
+        Console.WriteLine("Access denied to site");
+    }
+    else
+    {
+        Console.WriteLine($"Error: {error.Error.Message}");
+    }
+}
+```
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Site Model" href="https://learn.microsoft.com/graph/api/resources/site" icon="sitemap">
+    Site resource properties
+  </Card>
+  <Card title="Drives API" href="/api-reference/drives" icon="hard-drive">
+    Document library operations
+  </Card>
+  <Card title="DriveItems API" href="/api-reference/drive-items" icon="file">
+    File operations
+  </Card>
+  <Card title="SharePoint Lists" href="https://learn.microsoft.com/graph/api/resources/list" icon="list">
+    List resource documentation
+  </Card>
+</CardGroup>

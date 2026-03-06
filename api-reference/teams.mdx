@@ -1,0 +1,521 @@
+---
+title: 'Teams'
+description: 'Microsoft Teams operations in Microsoft Graph'
+---
+
+## Overview
+
+The Teams API provides operations to manage Microsoft Teams. Access through `graphClient.Teams`.
+
+## Request Builder
+
+```csharp
+public TeamsRequestBuilder Teams { get; }
+```
+
+Accessed via: `graphClient.Teams`
+
+## Operations
+
+### List Teams
+
+List all teams in the organization.
+
+```csharp
+var teams = await graphClient.Teams.GetAsync();
+
+foreach (var team in teams.Value)
+{
+    Console.WriteLine($"{team.DisplayName}");
+    Console.WriteLine($"  Description: {team.Description}");
+    Console.WriteLine($"  Visibility: {team.Visibility}");
+}
+```
+
+### Get Team by ID
+
+```csharp
+var team = await graphClient.Teams["team-id"].GetAsync();
+
+Console.WriteLine($"Team: {team.DisplayName}");
+Console.WriteLine($"Web URL: {team.WebUrl}");
+```
+
+### Get Team from Group
+
+```csharp
+// Every team is backed by a Microsoft 365 group
+var team = await graphClient.Groups["group-id"].Team.GetAsync();
+```
+
+### Get User's Joined Teams
+
+```csharp
+var joinedTeams = await graphClient.Me.JoinedTeams.GetAsync();
+
+foreach (var team in joinedTeams.Value)
+{
+    Console.WriteLine($"{team.DisplayName}");
+}
+
+// For specific user
+var userTeams = await graphClient.Users["user-id"].JoinedTeams.GetAsync();
+```
+
+### Create Team
+
+Create a new team.
+
+```csharp
+var newTeam = new Team
+{
+    DisplayName = "Engineering Team",
+    Description = "Engineering department collaboration",
+    AdditionalData = new Dictionary<string, object>
+    {
+        {
+            "template@odata.bind",
+            "https://graph.microsoft.com/v1.0/teamsTemplates('standard')"
+        }
+    },
+    Members = new List<ConversationMember>
+    {
+        new AadUserConversationMember
+        {
+            Roles = new List<string> { "owner" },
+            AdditionalData = new Dictionary<string, object>
+            {
+                {
+                    "user@odata.bind",
+                    $"https://graph.microsoft.com/v1.0/users/{userId}"
+                }
+            }
+        }
+    }
+};
+
+var team = await graphClient.Teams.PostAsync(newTeam);
+```
+
+### Create Team from Group
+
+```csharp
+var newTeam = new Team
+{
+    MemberSettings = new TeamMemberSettings
+    {
+        AllowCreateUpdateChannels = true
+    },
+    MessagingSettings = new TeamMessagingSettings
+    {
+        AllowUserEditMessages = true,
+        AllowUserDeleteMessages = true
+    },
+    FunSettings = new TeamFunSettings
+    {
+        AllowGiphy = true,
+        GiphyContentRating = GiphyRatingType.Moderate
+    }
+};
+
+var team = await graphClient.Groups["group-id"].Team.PutAsync(newTeam);
+```
+
+### Update Team
+
+```csharp
+var updateTeam = new Team
+{
+    MemberSettings = new TeamMemberSettings
+    {
+        AllowCreateUpdateChannels = false
+    },
+    MessagingSettings = new TeamMessagingSettings
+    {
+        AllowUserEditMessages = false
+    }
+};
+
+await graphClient.Teams["team-id"].PatchAsync(updateTeam);
+```
+
+### Archive Team
+
+```csharp
+await graphClient.Teams["team-id"].Archive.PostAsync(new ArchivePostRequestBody
+{
+    ShouldSetSpoSiteReadOnlyForMembers = true
+});
+```
+
+### Unarchive Team
+
+```csharp
+await graphClient.Teams["team-id"].Unarchive.PostAsync();
+```
+
+### Delete Team
+
+```csharp
+// Delete the associated group (which deletes the team)
+await graphClient.Groups["group-id"].DeleteAsync();
+```
+
+## Members
+
+### List Members
+
+```csharp
+var members = await graphClient.Teams["team-id"].Members.GetAsync();
+
+foreach (var member in members.Value)
+{
+    if (member is AadUserConversationMember userMember)
+    {
+        Console.WriteLine($"{userMember.DisplayName}");
+        Console.WriteLine($"  Email: {userMember.Email}");
+        Console.WriteLine($"  Roles: {string.Join(", ", userMember.Roles)}");
+    }
+}
+```
+
+### Add Member
+
+```csharp
+var newMember = new AadUserConversationMember
+{
+    Roles = new List<string>(), // Empty for regular member, ["owner"] for owner
+    AdditionalData = new Dictionary<string, object>
+    {
+        {
+            "user@odata.bind",
+            $"https://graph.microsoft.com/v1.0/users/{userId}"
+        }
+    }
+};
+
+await graphClient.Teams["team-id"].Members.PostAsync(newMember);
+```
+
+### Add Multiple Members
+
+```csharp
+var members = new List<ConversationMember>();
+
+foreach (var userId in userIds)
+{
+    members.Add(new AadUserConversationMember
+    {
+        Roles = new List<string>(),
+        AdditionalData = new Dictionary<string, object>
+        {
+            { "user@odata.bind", $"https://graph.microsoft.com/v1.0/users/{userId}" }
+        }
+    });
+}
+
+// Add in batches using batch requests
+```
+
+### Update Member Role
+
+```csharp
+var updateMember = new AadUserConversationMember
+{
+    Roles = new List<string> { "owner" }
+};
+
+await graphClient.Teams["team-id"]
+    .Members["membership-id"]
+    .PatchAsync(updateMember);
+```
+
+### Remove Member
+
+```csharp
+await graphClient.Teams["team-id"].Members["membership-id"].DeleteAsync();
+```
+
+## Channels
+
+See [Channels API](/api-reference/channels) for detailed channel operations.
+
+```csharp
+// List channels
+var channels = await graphClient.Teams["team-id"].Channels.GetAsync();
+
+// Get specific channel
+var channel = await graphClient.Teams["team-id"]
+    .Channels["channel-id"]
+    .GetAsync();
+```
+
+## Apps
+
+### List Installed Apps
+
+```csharp
+var apps = await graphClient.Teams["team-id"]
+    .InstalledApps
+    .GetAsync(config =>
+{
+    config.QueryParameters.Expand = new[] { "teamsAppDefinition" };
+});
+
+foreach (var app in apps.Value)
+{
+    var appDef = app.TeamsAppDefinition;
+    Console.WriteLine($"{appDef.DisplayName} - v{appDef.Version}");
+}
+```
+
+### Install App
+
+```csharp
+var teamsApp = new TeamsAppInstallation
+{
+    AdditionalData = new Dictionary<string, object>
+    {
+        {
+            "teamsApp@odata.bind",
+            $"https://graph.microsoft.com/v1.0/appCatalogs/teamsApps/{teamsAppId}"
+        }
+    }
+};
+
+await graphClient.Teams["team-id"].InstalledApps.PostAsync(teamsApp);
+```
+
+### Upgrade App
+
+```csharp
+await graphClient.Teams["team-id"]
+    .InstalledApps["installation-id"]
+    .Upgrade
+    .PostAsync();
+```
+
+### Uninstall App
+
+```csharp
+await graphClient.Teams["team-id"]
+    .InstalledApps["installation-id"]
+    .DeleteAsync();
+```
+
+## Tabs
+
+### List Tabs in Channel
+
+```csharp
+var tabs = await graphClient.Teams["team-id"]
+    .Channels["channel-id"]
+    .Tabs
+    .GetAsync();
+
+foreach (var tab in tabs.Value)
+{
+    Console.WriteLine($"{tab.DisplayName} - {tab.WebUrl}");
+}
+```
+
+### Add Tab
+
+```csharp
+var newTab = new TeamsTab
+{
+    DisplayName = "Project Dashboard",
+    AdditionalData = new Dictionary<string, object>
+    {
+        {
+            "teamsApp@odata.bind",
+            "https://graph.microsoft.com/v1.0/appCatalogs/teamsApps/com.microsoft.teamspace.tab.planner"
+        }
+    },
+    Configuration = new TeamsTabConfiguration
+    {
+        EntityId = "taskboard",
+        ContentUrl = "https://tasks.office.com/...",
+        WebsiteUrl = "https://tasks.office.com/..."
+    }
+};
+
+await graphClient.Teams["team-id"]
+    .Channels["channel-id"]
+    .Tabs
+    .PostAsync(newTab);
+```
+
+## Tags
+
+### List Tags
+
+```csharp
+var tags = await graphClient.Teams["team-id"].Tags.GetAsync();
+
+foreach (var tag in tags.Value)
+{
+    Console.WriteLine($"{tag.DisplayName} - {tag.MemberCount} members");
+}
+```
+
+### Create Tag
+
+```csharp
+var newTag = new TeamworkTag
+{
+    DisplayName = "Marketing",
+    Members = new List<TeamworkTagMember>
+    {
+        new TeamworkTagMember
+        {
+            UserId = "user-id-1"
+        },
+        new TeamworkTagMember
+        {
+            UserId = "user-id-2"
+        }
+    }
+};
+
+await graphClient.Teams["team-id"].Tags.PostAsync(newTag);
+```
+
+## Operations
+
+### Get Operation Status
+
+```csharp
+var operations = await graphClient.Teams["team-id"].Operations.GetAsync();
+
+foreach (var operation in operations.Value)
+{
+    Console.WriteLine($"Operation: {operation.OperationType}");
+    Console.WriteLine($"Status: {operation.Status}");
+    Console.WriteLine($"Created: {operation.CreatedDateTime}");
+}
+```
+
+## Primary Channel
+
+```csharp
+var primaryChannel = await graphClient.Teams["team-id"]
+    .PrimaryChannel
+    .GetAsync();
+
+Console.WriteLine($"Primary channel: {primaryChannel.DisplayName}");
+```
+
+## Schedule (Shifts)
+
+### Get Schedule
+
+```csharp
+var schedule = await graphClient.Teams["team-id"].Schedule.GetAsync();
+
+Console.WriteLine($"Enabled: {schedule.Enabled}");
+Console.WriteLine($"Time zone: {schedule.TimeZone}");
+```
+
+### List Shifts
+
+```csharp
+var shifts = await graphClient.Teams["team-id"].Schedule.Shifts.GetAsync();
+
+foreach (var shift in shifts.Value)
+{
+    Console.WriteLine($"{shift.UserId}: {shift.SharedShift.StartDateTime} - {shift.SharedShift.EndDateTime}");
+}
+```
+
+## Photo
+
+### Get Team Photo
+
+```csharp
+var photo = await graphClient.Teams["team-id"].Photo.GetAsync();
+
+var photoStream = await graphClient.Teams["team-id"]
+    .Photo
+    .Content
+    .GetAsync();
+
+using var fileStream = File.Create("team-photo.jpg");
+await photoStream.CopyToAsync(fileStream);
+```
+
+## All Messages
+
+Get all messages across all channels.
+
+```csharp
+var messages = await graphClient.Teams.GetAllMessages.GetAsync();
+
+foreach (var message in messages.Value)
+{
+    Console.WriteLine($"{message.From.User.DisplayName}: {message.Body.Content}");
+}
+```
+
+## Clone Team
+
+```csharp
+await graphClient.Teams["team-id"].Clone.PostAsync(new ClonePostRequestBody
+{
+    DisplayName = "Team Clone",
+    Description = "Cloned team",
+    MailNickname = "teamclone",
+    Visibility = TeamVisibilityType.Private,
+    PartsToClone = ClonableTeamParts.Apps | ClonableTeamParts.Tabs | ClonableTeamParts.Settings
+});
+```
+
+## Complete Install
+
+```csharp
+// Complete installation for app catalog teams app
+await graphClient.Teams["team-id"].CompleteMigration.PostAsync();
+```
+
+## Error Handling
+
+```csharp
+using Microsoft.Graph.Models.ODataErrors;
+
+try
+{
+    var team = await graphClient.Teams["team-id"].GetAsync();
+}
+catch (ODataError error)
+{
+    if (error.Error.Code == "NotFound")
+    {
+        Console.WriteLine("Team not found");
+    }
+    else if (error.Error.Code == "Forbidden")
+    {
+        Console.WriteLine("Access denied to team");
+    }
+    else
+    {
+        Console.WriteLine($"Error: {error.Error.Message}");
+    }
+}
+```
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Team Model" href="https://learn.microsoft.com/graph/api/resources/team" icon="microsoft">
+    Team resource properties
+  </Card>
+  <Card title="Channels API" href="/api-reference/channels" icon="hashtag">
+    Channel operations
+  </Card>
+  <Card title="Chats API" href="/api-reference/chats" icon="comments">
+    Chat operations
+  </Card>
+  <Card title="Groups API" href="/api-reference/groups" icon="users-rectangle">
+    Microsoft 365 Groups
+  </Card>
+</CardGroup>

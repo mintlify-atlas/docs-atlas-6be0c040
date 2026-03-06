@@ -1,0 +1,528 @@
+---
+title: Upgrade to v4
+description: Guide for migrating from Microsoft Graph .NET SDK v3 to v4, including System.Text.Json migration and breaking changes
+---
+
+# Upgrade to v4
+
+This guide outlines the breaking changes and migration steps required when upgrading from v3 to v4 of the Microsoft Graph .NET SDK.
+
+## Breaking Changes Overview
+
+To improve the development experience, v4 introduces the following breaking changes:
+
+- .NET Standard minimum version bumped from `netstandard1.3` to `netstandard2.0`
+- .NET Framework minimum version bumped from `net45` to `net462`
+- Replacing Newtonsoft.Json dependency with System.Text.Json
+- Upgrading Microsoft.Graph.Core dependency to version 2.0.0
+- Azure Functions need to use the ["isolated process" model for .NET 5.0](https://docs.microsoft.com/en-us/azure/azure-functions/dotnet-isolated-process-guide)
+
+<Warning>
+  This is a major version upgrade. Review the System.Text.Json migration section carefully.
+</Warning>
+
+## System.Text.Json Replaces Newtonsoft.Json
+
+The most significant change in v4 is the migration from [Newtonsoft.Json](https://www.newtonsoft.com/json) to System.Text.Json. Read more about the differences [here](https://docs.microsoft.com/en-us/dotnet/standard/serialization/system-text-json-migrate-from-newtonsoft-how-to?pivots=dotnet-5-0#table-of-differences-between-newtonsoftjson-and-systemtextjson).
+
+### JToken to JsonDocument
+
+Object types and function parameters using Newtonsoft's `JToken` are now replaced by System.Text.Json's `JsonDocument`.
+
+**Before (v3):**
+```csharp
+GraphServiceClient graphClient = new GraphServiceClient(authProvider);
+
+int index = 5;
+
+JToken values = JToken.Parse("[[1,2,3],[4,5,6]]");
+
+await graphClient.Me.Drive.Items["{id}"].Workbook.Tables["{id|name}"].Rows
+    .Add(index, values)
+    .Request()
+    .PostAsync();
+```
+
+**After (v4):**
+```csharp
+GraphServiceClient graphClient = new GraphServiceClient(authProvider);
+
+int index = 5;
+
+JsonDocument values = JsonDocument.Parse("[[1,2,3],[4,5,6]]");
+
+await graphClient.Me.Drive.Items["{id}"].Workbook.Tables["{id|name}"].Rows
+    .Add(index, values)
+    .Request()
+    .PostAsync();
+```
+
+### AdditionalData Bag Changes
+
+Objects in the `AdditionalData` bag are now of type `JsonElement` from System.Text.Json rather than Newtonsoft's derivatives of `JToken` (i.e., `JArray`, `String`, or `JObject`).
+
+**Working with JsonElement:**
+
+You can infer if the `JsonElement` is an array/string/boolean/object from the `ValueKind` property:
+
+```csharp
+if (additionalData["customProperty"] is JsonElement jsonElement)
+{
+    switch (jsonElement.ValueKind)
+    {
+        case JsonValueKind.String:
+            var stringValue = jsonElement.GetString();
+            break;
+        case JsonValueKind.Number:
+            var numberValue = jsonElement.GetInt32();
+            break;
+        case JsonValueKind.Array:
+            foreach (var item in jsonElement.EnumerateArray())
+            {
+                // Process array items
+            }
+            break;
+        case JsonValueKind.Object:
+            // Process object properties
+            break;
+    }
+}
+```
+
+<Note>
+  Find other relevant JsonElement methods in the [official documentation](https://docs.microsoft.com/en-us/dotnet/api/system.text.json.jsonelement?view=net-5.0#methods).
+</Note>
+
+### Strict JSON Standards
+
+System.Text.Json enforces stricter JSON standards than Newtonsoft (e.g., trailing commas and comments are not allowed).
+
+If you need to allow these features, you can override the default serializer options:
+
+```csharp
+// Add extra options
+var options = new JsonSerializerOptions
+{
+    ReadCommentHandling = JsonCommentHandling.Skip,
+    AllowTrailingCommas = true,
+};
+
+Serializer serializer = new Serializer(options);
+IResponseHandler responseHandler = new ResponseHandler(serializer); // Response Handler with custom Serializer
+
+User me = await graphClient.Me.Request()
+    .WithResponseHandler(responseHandler)
+    .GetAsync();
+```
+
+## IBaseRequest Changes
+
+### New IResponseHandler Member
+
+The `IBaseRequest` interface now has a new member of type `IResponseHandler`. Any existing code that derives from it must take this into consideration.
+
+### Method Property Type Change
+
+The `Method` property in the `IBaseRequest` interface is now of type enum instead of string. Update any existing code that derives from it to use the enum values provided in the library.
+
+## HTTP Status Code and Headers
+
+<Warning>
+  HTTP status code and response headers are no longer placed into the AdditionalData property bag.
+</Warning>
+
+This information is now available through the `GraphResponse` object for better user experience and performance. See the [Graph Response](#graph-response) section below.
+
+## GraphServiceClient No Longer Implements IGraphServiceClient
+
+The `IGraphServiceClient` interface has been removed because it continued to change with metadata changes, making it not ideal to mock or inherit.
+
+To support mocking frameworks (such as Moq), the properties/methods of the `GraphServiceClient` have been made virtual.
+
+**Example using Moq:**
+```csharp
+// Arrange
+var mockAuthProvider = new Mock<IAuthenticationProvider>();
+var mockHttpProvider = new Mock<IHttpProvider>();
+var mockGraphClient = new Mock<GraphServiceClient>(mockAuthProvider.Object, mockHttpProvider.Object);
+
+ManagedDevice md = new ManagedDevice
+{
+    Id = "1",
+    DeviceCategory = new DeviceCategory()
+    {
+        Description = "Sample Description"
+    }
+};
+
+// Setup the calls
+mockGraphClient.Setup(g => g.DeviceManagement.ManagedDevices["1"].Request().GetAsync(CancellationToken.None))
+    .Returns(Task.Run(() => md))
+    .Verifiable();
+
+// Act
+var graphClient = mockGraphClient.Object;
+var device = await graphClient.DeviceManagement.ManagedDevices["1"].Request().GetAsync(CancellationToken.None);
+
+// Assert
+Assert.Equal("1", device.Id);
+```
+
+## Collection Response Changes
+
+### NextLink Property
+
+Response for collection types are now deserialized into the `NextLink` property in the collection response object and are not available in the additionalData bag.
+
+```csharp
+var users = await graphServiceClient.Users.Request().GetAsync();
+var nextLink = users.NextPageRequest.GetHttpRequestMessage().RequestUri.OriginalString;
+```
+
+### PageIterator Recommendation
+
+<Note>
+  It is recommended to use the PageIterator when paging through collections for advanced functionality such as configuring pausing, managing state, and accessing DeltaLink and NextLink.
+</Note>
+
+**Example using PageIterator with delta:**
+```csharp
+int count = 0;
+int pauseAfter = 25;
+
+var messages = await graphClient.Me.Messages
+    .Request()
+    .Select(e => new {
+        e.Sender,
+        e.Subject
+    })
+    .Top(10)
+    .GetAsync();
+
+var pageIterator = PageIterator<Message>
+    .CreatePageIterator(
+        graphClient,
+        messages,
+        (m) =>
+        {
+            Console.WriteLine(m.Subject);
+            count++;
+            // If we've iterated over the limit, stop the iteration
+            return count < pauseAfter;
+        }
+    );
+
+await pageIterator.IterateAsync();
+
+while (pageIterator.State != PagingState.Complete)
+{
+    if (pageIterator.State == PagingState.Delta) 
+    {
+        string deltaLink = pageIterator.Deltalink;
+        Console.WriteLine($"Paged through results and found deltaLink: {deltaLink}");
+    }
+
+    Console.WriteLine("Iteration paused for 5 seconds...");
+    await Task.Delay(5000);
+    // Reset count
+    count = 0;
+    await pageIterator.ResumeAsync();
+}
+```
+
+## New Capabilities
+
+### Azure Identity Support
+
+The Microsoft Graph library now supports the use of `TokenCredential` classes in the Azure.Identity library through the new `TokenCredentialAuthProvider`.
+
+Read more about available Credential classes [here](https://docs.microsoft.com/en-us/dotnet/api/overview/azure/identity-readme#key-concepts). This is encouraged to be used in place of the `Microsoft.Graph.Auth` package.
+
+**Before (using Microsoft.Graph.Auth):**
+```csharp
+string[] scopes = {"User.Read"};
+
+IPublicClientApplication publicClientApplication = PublicClientApplicationBuilder
+    .Create(clientId)
+    .Build();
+
+InteractiveAuthenticationProvider authProvider = new InteractiveAuthenticationProvider(publicClientApplication, scopes);
+
+GraphServiceClient graphClient = new GraphServiceClient(authProvider);
+
+User me = await graphClient.Me.Request()
+    .GetAsync();
+```
+
+**After (using TokenCredential):**
+```csharp
+string[] scopes = {"User.Read"};
+
+InteractiveBrowserCredentialOptions interactiveBrowserCredentialOptions = new InteractiveBrowserCredentialOptions() 
+{
+    ClientId = clientId
+};
+InteractiveBrowserCredential interactiveBrowserCredential = new InteractiveBrowserCredential(interactiveBrowserCredentialOptions);
+
+// You can pass the TokenCredential directly to the GraphServiceClient
+GraphServiceClient graphClient = new GraphServiceClient(interactiveBrowserCredential, scopes);
+
+User me = await graphClient.Me.Request()
+    .GetAsync();
+```
+
+<Note>
+  For Web/API scenarios, use the [Microsoft.Identity.Web](https://github.com/AzureAD/microsoft-identity-web) library. Check the [Wiki](https://github.com/AzureAD/microsoft-identity-web/wiki) for more information.
+</Note>
+
+### Graph Response
+
+The `GraphResponse` object enables easier access to response information like response headers and status codes.
+
+New methods corresponding to existing API methods:
+- `GetResponseAsync(): GraphResponse<T>`
+- `AddResponseAsync(NewObject: Entity): GraphResponse<T>`
+- `CreateResponseAsync(NewObject: Entity): GraphResponse<T>`
+- `PostResponseAsync(NewObject: Entity): GraphResponse<T>`
+- `UpdateResponseAsync(UpdatedObject: Entity): GraphResponse<T>`
+- `PutResponseAsync(UpdatedObject: Entity): GraphResponse<T>`
+- `DeleteResponseAsync(): GraphResponse` (no generic)
+
+**Standard usage:**
+```csharp
+User me = await graphClient.Me.Request()
+    .GetAsync();
+```
+
+**Accessing response headers and status codes:**
+```csharp
+GraphResponse<User> userResponse = await graphClient.Me.Request()
+    .GetResponseAsync();
+
+// Get the status code
+HttpStatusCode status = userResponse.StatusCode;
+// Get the headers
+HttpResponseHeaders headers = userResponse.HttpHeaders;
+// Get the user object using inbuilt serializer
+User me = await userResponse.GetResponseObjectAsync();
+```
+
+**Custom deserialization:**
+
+1. **Using a custom IResponseHandler:**
+```csharp
+ISerializer serializer = new CustomSerializer(); // Custom Serializer
+IResponseHandler responseHandler = new ResponseHandler(serializer); // Response Handler with custom Serializer
+
+var patchUser = new User()
+{
+    DisplayName = "Graph User"
+};
+
+GraphResponse<User> graphResponse = await graphServiceClient.Me.Request()
+    .WithResponseHandler(responseHandler) // Customized response handler
+    .UpdateWithGraphResponseAsync<User>(patchUser, cancellationToken);
+
+User user = graphResponse.GetResponseObjectAsync(); // Calls the Response Handler with custom serializer
+```
+
+2. **Reading and deserializing the response:**
+```csharp
+GraphResponse<User> userResponse = await graphClient.Me.Request()
+    .GetResponseAsync();
+
+JsonSerializer serializer = new JsonSerializer(); // Custom serializer
+
+using (StreamReader sr = new StreamReader(userResponse.Content.ReadAsStreamAsync()))
+using (JsonTextReader jsonTextReader = new JsonTextReader(sr))
+{
+    User deserializedProduct = serializer.Deserialize(jsonTextReader);
+}
+```
+
+### Encrypted Content for Rich Notifications
+
+The SDK now includes native support to decrypt resource data in rich notifications payloads.
+
+**Creating a subscription with encryption:**
+```csharp
+// Create a subscription to listen to new and edited teams messages
+var subscription = new Subscription
+{
+    ChangeType = "created,updated",
+    IncludeResourceData = true,
+    NotificationUrl = _config.Ngrok + "/api/notifications",
+    Resource = "/teams/getAllMessages",
+    ExpirationDateTime = DateTime.UtcNow.AddMinutes(5),
+    ClientState = "SecretClientState",
+    EncryptionCertificateId = "my-custom-id",
+};
+
+// Load a X509Certificate into the subscription object
+subscription.AddPublicEncryptionCertificate(this._certificate);
+
+var newSubscription = await graphServiceClient
+    .Subscriptions
+    .Request()
+    .AddAsync(subscription);
+```
+
+**Handling notifications:**
+```csharp
+public async Task<ActionResult<string>> Post([FromQuery] string validationToken = null)
+{
+    // Handle validation
+    if (!string.IsNullOrEmpty(validationToken))
+    {
+        Console.WriteLine($"Received Token: '{validationToken}'");
+        return Ok(validationToken);
+    }
+    
+    var graphServiceClient = GetGraphClient();
+    var myTenantIds = new Guid[] { new Guid(_config.TenantId) };
+    var myAppIds = new Guid[] { new Guid(_config.AppId) };
+    
+    // Handle notifications
+    var content = await new StreamReader(Request.Body).ReadToEndAsync();
+    var collection = graphServiceClient.HttpProvider.Serializer
+        .DeserializeObject<ChangeNotificationCollection>(content);
+    
+    // Validate the tokens
+    var areTokensValid = await collection.AreTokensValid(myTenantIds, myAppIds);
+    foreach (var changeNotification in collection.Value)
+    {
+        // Decrypt the encryptedContent
+        var attachedChatMessage = await changeNotification.EncryptedContent
+            .DecryptAsync<ChatMessage>((id, thumbprint) => Task.FromResult(this._certificate));
+        
+        if (areTokensValid)
+        {
+            // Handle the decrypted object information
+            Console.WriteLine($"Message time: {attachedChatMessage.CreatedDateTime}");
+            Console.WriteLine($"Message from: {attachedChatMessage.From?.User?.DisplayName}");
+            Console.WriteLine($"Message content: {attachedChatMessage.Body.Content}");
+            Console.WriteLine();
+        }
+    }
+    return Ok();
+}
+```
+
+<Note>
+  Learn more about rich notifications [here](https://docs.microsoft.com/en-us/graph/webhooks-with-resource-data).
+</Note>
+
+## Bug Fixes
+
+### @odata.type No Longer Set by Default
+
+In v3, all generated types had the `@odata.type` property set, which led to serialization errors. This required workarounds:
+
+**Before (v3 - workaround needed):**
+```csharp
+await _graphServiceClient
+    .TrustFramework
+    .KeySets
+    .Request()
+    .AddAsync(new TrustFrameworkKeySet()
+    {
+        Id = keySetId,
+        ODataType = null    // Workaround needed
+    });
+```
+
+**After (v4 - no workaround needed):**
+```csharp
+await _graphServiceClient
+    .TrustFramework
+    .KeySets
+    .Request()
+    .AddAsync(new TrustFrameworkKeySet()
+    {
+        Id = keySetId
+    });
+```
+
+The `@odata.type` parameter is now set only when needed for type disambiguation:
+1. When the type derives from an abstract type
+2. When one of its base types is referenced as the type for a property in another type (except if the base is entity)
+3. When one of its base types is referenced as the type in an OData action in another type (except if the base is entity)
+
+### Query Options Now Encoded by Default
+
+In v3, query parameters were not encoded by default, causing errors with the API endpoint. In v4, query parameters are now encoded by default.
+
+**Before (v3 - workaround needed):**
+```csharp
+client.Users[adUserIdOrEmail].MailFolders.Inbox.Messages
+    .Request()
+    .Filter("contains(subject, '%23')"); // Manual encoding
+```
+
+**After (v4 - automatic encoding):**
+```csharp
+client.Users[adUserIdOrEmail].MailFolders.Inbox.Messages
+    .Request()
+    .Filter("contains(subject, '#')"); // Automatically encoded
+```
+
+<Warning>
+  Since URL encoding is done individually in each query option, combining query options may lead to errors.
+</Warning>
+
+**Example requiring refactoring:**
+
+**Before:**
+```csharp
+var groups = await _graphServiceClient
+    .Me
+    .TransitiveMemberOf
+    .Request()
+    .Header("ConsistencyLevel", "eventual")
+    .Filter($"id eq '{groupId}'&$count=true") // Combines $filter and $count
+    .Select("id")
+    .GetAsync();
+```
+
+**After:**
+```csharp
+var options = new List<QueryOption>
+{
+    new QueryOption("$count", "true")
+};
+
+var groups = await _graphServiceClient
+    .Me
+    .TransitiveMemberOf
+    .Request(options)
+    .Header("ConsistencyLevel", "eventual")
+    .Filter($"id eq '{groupId}'") // Only filter clause
+    .Select("id")
+    .GetAsync();
+```
+
+## Migration Checklist
+
+<Card title="Step-by-Step Migration" icon="list-check">
+  1. Update .NET target framework to .NET Standard 2.0 or .NET Framework 4.6.2+
+  2. Replace all `JToken` usage with `JsonDocument`
+  3. Update AdditionalData bag handling to use `JsonElement`
+  4. Remove manual encoding workarounds for query parameters
+  5. Remove `ODataType = null` workarounds
+  6. Update authentication to use Azure.Identity TokenCredential classes
+  7. Replace ServiceException with appropriate exception handling
+  8. Test collection response handling with the new NextLink property
+  9. Update any custom IBaseRequest implementations
+  10. Test your application thoroughly
+</Card>
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="Azure Identity Documentation" icon="shield" href="https://docs.microsoft.com/en-us/dotnet/api/overview/azure/identity-readme">
+    Learn about TokenCredential classes
+  </Card>
+  <Card title="System.Text.Json Migration" icon="file-code" href="https://docs.microsoft.com/en-us/dotnet/standard/serialization/system-text-json-migrate-from-newtonsoft-how-to">
+    Complete guide to migrating from Newtonsoft.Json
+  </Card>
+</CardGroup>

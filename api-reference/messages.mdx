@@ -1,0 +1,500 @@
+---
+title: 'Messages'
+description: 'Email message operations in Microsoft Graph'
+---
+
+## Overview
+
+The Messages API provides operations to manage email messages in user mailboxes. Access through `graphClient.Users[userId].Messages` or `graphClient.Me.Messages`.
+
+## Request Builders
+
+```csharp
+// For current user
+public MessagesRequestBuilder Messages { get; }
+// Access: graphClient.Me.Messages
+
+// For specific user
+public MessagesRequestBuilder Messages { get; }
+// Access: graphClient.Users["user-id"].Messages
+
+// For mail folder
+public MessagesRequestBuilder Messages { get; }
+// Access: graphClient.Me.MailFolders["folder-id"].Messages
+```
+
+## Operations
+
+### List Messages
+
+Retrieve messages from a mailbox or folder.
+
+```csharp
+public async Task<MessageCollectionResponse> GetAsync(
+    Action<RequestConfiguration<MessagesRequestBuilderGetQueryParameters>> requestConfiguration = default,
+    CancellationToken cancellationToken = default
+)
+```
+
+**Query Parameters:**
+
+<ParamField path="$select" type="string[]">
+  Properties to return (e.g., `["subject", "from", "receivedDateTime"]`)
+</ParamField>
+
+<ParamField path="$filter" type="string">
+  Filter expression (e.g., `"isRead eq false"`, `"from/emailAddress/address eq 'user@domain.com'"`)
+</ParamField>
+
+<ParamField path="$orderby" type="string[]">
+  Sort order (e.g., `["receivedDateTime desc"]`)
+</ParamField>
+
+<ParamField path="$top" type="int">
+  Number of messages to return
+</ParamField>
+
+<ParamField path="$skip" type="int">
+  Number of messages to skip
+</ParamField>
+
+<ParamField path="$search" type="string">
+  Search query (e.g., `"subject:meeting"`)
+</ParamField>
+
+<ParamField path="$expand" type="string[]">
+  Expand related entities (e.g., `["attachments"]`)
+</ParamField>
+
+**Response:**
+
+<ResponseField name="value" type="Message[]">
+  Array of message objects
+</ResponseField>
+
+<ResponseField name="@odata.nextLink" type="string">
+  URL for next page of results
+</ResponseField>
+
+**Example:**
+
+```csharp
+// Get messages for current user
+var messages = await graphClient.Me.Messages.GetAsync();
+
+foreach (var message in messages.Value)
+{
+    Console.WriteLine($"{message.Subject} - {message.ReceivedDateTime}");
+}
+
+// Get unread messages
+var unreadMessages = await graphClient.Me.Messages.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "isRead eq false";
+    config.QueryParameters.Orderby = new[] { "receivedDateTime desc" };
+    config.QueryParameters.Top = 50;
+});
+
+// Search messages
+var searchResults = await graphClient.Me.Messages.GetAsync(config =>
+{
+    config.QueryParameters.Search = "\"subject:project update\"";
+});
+
+// Get messages with attachments
+var messagesWithAttachments = await graphClient.Me.Messages.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "hasAttachments eq true";
+    config.QueryParameters.Expand = new[] { "attachments" };
+});
+```
+
+### Create Message (Draft)
+
+Create a new draft message.
+
+```csharp
+public async Task<Message> PostAsync(
+    Message body,
+    Action<RequestConfiguration<DefaultQueryParameters>> requestConfiguration = default,
+    CancellationToken cancellationToken = default
+)
+```
+
+<ParamField path="body" type="Message" required>
+  Message object to create
+</ParamField>
+
+**Example:**
+
+```csharp
+var newMessage = new Message
+{
+    Subject = "Project Update",
+    Body = new ItemBody
+    {
+        ContentType = BodyType.Html,
+        Content = "<h1>Project Status</h1><p>Here's the latest update...</p>"
+    },
+    ToRecipients = new List<Recipient>
+    {
+        new Recipient
+        {
+            EmailAddress = new EmailAddress
+            {
+                Address = "user@contoso.com",
+                Name = "John Doe"
+            }
+        }
+    },
+    CcRecipients = new List<Recipient>
+    {
+        new Recipient
+        {
+            EmailAddress = new EmailAddress
+            {
+                Address = "manager@contoso.com"
+            }
+        }
+    },
+    Importance = Importance.High,
+    IsDeliveryReceiptRequested = true
+};
+
+var draft = await graphClient.Me.Messages.PostAsync(newMessage);
+Console.WriteLine($"Draft created with ID: {draft.Id}");
+```
+
+### Get Message by ID
+
+Retrieve a specific message.
+
+```csharp
+var message = await graphClient.Me.Messages["message-id"].GetAsync();
+
+// Select specific properties
+var message = await graphClient.Me.Messages["message-id"].GetAsync(config =>
+{
+    config.QueryParameters.Select = new[] { "subject", "from", "receivedDateTime", "body" };
+});
+
+// Include attachments
+var message = await graphClient.Me.Messages["message-id"].GetAsync(config =>
+{
+    config.QueryParameters.Expand = new[] { "attachments" };
+});
+```
+
+### Update Message
+
+Update message properties.
+
+```csharp
+// Mark as read
+var updateMessage = new Message
+{
+    IsRead = true
+};
+await graphClient.Me.Messages["message-id"].PatchAsync(updateMessage);
+
+// Move to folder
+var moveMessage = new Message
+{
+    // Update other properties
+};
+await graphClient.Me.Messages["message-id"].PatchAsync(moveMessage);
+
+// Categorize
+var categorizeMessage = new Message
+{
+    Categories = new[] { "Important", "Follow up" }
+};
+await graphClient.Me.Messages["message-id"].PatchAsync(categorizeMessage);
+```
+
+### Delete Message
+
+Delete a message (moves to Deleted Items).
+
+```csharp
+await graphClient.Me.Messages["message-id"].DeleteAsync();
+```
+
+## Message Actions
+
+### Send Message
+
+Send an existing draft message.
+
+```csharp
+await graphClient.Me.Messages["message-id"].Send.PostAsync();
+```
+
+### Send Mail (Create and Send)
+
+Create and send a message in one operation.
+
+```csharp
+var message = new Message
+{
+    Subject = "Quick Update",
+    Body = new ItemBody
+    {
+        ContentType = BodyType.Text,
+        Content = "Just a quick update on the project."
+    },
+    ToRecipients = new List<Recipient>
+    {
+        new Recipient
+        {
+            EmailAddress = new EmailAddress { Address = "user@contoso.com" }
+        }
+    }
+};
+
+var sendMailBody = new SendMailPostRequestBody
+{
+    Message = message,
+    SaveToSentItems = true
+};
+
+await graphClient.Me.SendMail.PostAsync(sendMailBody);
+```
+
+### Reply to Message
+
+```csharp
+// Reply
+var replyBody = new ReplyPostRequestBody
+{
+    Comment = "Thanks for the update!",
+    Message = new Message
+    {
+        ToRecipients = new List<Recipient>
+        {
+            new Recipient { EmailAddress = new EmailAddress { Address = "other@contoso.com" } }
+        }
+    }
+};
+await graphClient.Me.Messages["message-id"].Reply.PostAsync(replyBody);
+
+// Reply All
+var replyAllBody = new ReplyAllPostRequestBody
+{
+    Comment = "Thanks everyone!"
+};
+await graphClient.Me.Messages["message-id"].ReplyAll.PostAsync(replyAllBody);
+```
+
+### Forward Message
+
+```csharp
+var forwardBody = new ForwardPostRequestBody
+{
+    Comment = "FYI",
+    ToRecipients = new List<Recipient>
+    {
+        new Recipient
+        {
+            EmailAddress = new EmailAddress { Address = "forward@contoso.com" }
+        }
+    }
+};
+
+await graphClient.Me.Messages["message-id"].Forward.PostAsync(forwardBody);
+```
+
+### Copy/Move Message
+
+```csharp
+// Copy to folder
+var copyBody = new CopyPostRequestBody
+{
+    DestinationId = "destination-folder-id"
+};
+var copiedMessage = await graphClient.Me.Messages["message-id"].Copy.PostAsync(copyBody);
+
+// Move to folder  
+var moveBody = new MovePostRequestBody
+{
+    DestinationId = "destination-folder-id"
+};
+var movedMessage = await graphClient.Me.Messages["message-id"].Move.PostAsync(moveBody);
+```
+
+## Attachment Operations
+
+### List Attachments
+
+```csharp
+var attachments = await graphClient.Me.Messages["message-id"].Attachments.GetAsync();
+
+foreach (var attachment in attachments.Value)
+{
+    if (attachment is FileAttachment fileAttachment)
+    {
+        Console.WriteLine($"File: {fileAttachment.Name} ({fileAttachment.Size} bytes)");
+    }
+    else if (attachment is ItemAttachment itemAttachment)
+    {
+        Console.WriteLine($"Item: {itemAttachment.Name}");
+    }
+}
+```
+
+### Add File Attachment
+
+```csharp
+// Small file (< 3MB)
+var fileBytes = File.ReadAllBytes("document.pdf");
+var attachment = new FileAttachment
+{
+    Name = "document.pdf",
+    ContentType = "application/pdf",
+    ContentBytes = fileBytes
+};
+
+await graphClient.Me.Messages["message-id"].Attachments.PostAsync(attachment);
+
+// Large file (using upload session)
+using var fileStream = File.OpenRead("large-file.zip");
+var uploadSession = await graphClient.Me.Messages["message-id"]
+    .Attachments
+    .CreateUploadSession
+    .PostAsync(new CreateUploadSessionPostRequestBody
+    {
+        AttachmentItem = new AttachmentItem
+        {
+            AttachmentType = AttachmentType.File,
+            Name = "large-file.zip",
+            Size = fileStream.Length
+        }
+    });
+
+// Upload in chunks
+var maxChunkSize = 320 * 1024; // 320 KB
+var largeFileUploadTask = new LargeFileUploadTask<FileAttachment>(
+    uploadSession, fileStream, maxChunkSize);
+
+await largeFileUploadTask.UploadAsync();
+```
+
+### Remove Attachment
+
+```csharp
+await graphClient.Me.Messages["message-id"].Attachments["attachment-id"].DeleteAsync();
+```
+
+## Common Filtering Examples
+
+```csharp
+// Unread messages from specific sender
+config.QueryParameters.Filter = "isRead eq false and from/emailAddress/address eq 'boss@contoso.com'";
+
+// Messages received in date range
+config.QueryParameters.Filter = "receivedDateTime ge 2024-01-01T00:00:00Z and receivedDateTime le 2024-01-31T23:59:59Z";
+
+// High importance messages
+config.QueryParameters.Filter = "importance eq 'high'";
+
+// Messages with attachments from domain
+config.QueryParameters.Filter = "hasAttachments eq true and from/emailAddress/address endsWith '@contoso.com'";
+
+// Flagged messages
+config.QueryParameters.Filter = "flag/flagStatus eq 'flagged'";
+```
+
+## Search Examples
+
+```csharp
+// Search in subject
+config.QueryParameters.Search = "\"subject:quarterly report\"";
+
+// Search in from field
+config.QueryParameters.Search = "\"from:john@contoso.com\"";
+
+// Search message body
+config.QueryParameters.Search = "\"body:project timeline\"";
+
+// Search with multiple terms
+config.QueryParameters.Search = "\"subject:meeting AND from:manager\"";
+```
+
+## Delta Query
+
+Get incremental changes to messages.
+
+```csharp
+var deltaResponse = await graphClient.Me.Messages.Delta.GetAsync();
+
+foreach (var message in deltaResponse.Value)
+{
+    Console.WriteLine($"Changed: {message.Subject}");
+}
+
+// Store deltaLink for next query
+if (deltaResponse.OdataDeltaLink != null)
+{
+    // Use this link for next delta query
+}
+```
+
+## Pagination
+
+```csharp
+var allMessages = new List<Message>();
+var response = await graphClient.Me.Messages.GetAsync(config =>
+{
+    config.QueryParameters.Top = 50;
+    config.QueryParameters.Orderby = new[] { "receivedDateTime desc" };
+});
+
+allMessages.AddRange(response.Value);
+
+while (response.OdataNextLink != null)
+{
+    response = await graphClient.Me.Messages
+        .WithUrl(response.OdataNextLink)
+        .GetAsync();
+    allMessages.AddRange(response.Value);
+}
+```
+
+## Error Handling
+
+```csharp
+using Microsoft.Graph.Models.ODataErrors;
+
+try
+{
+    var message = await graphClient.Me.Messages["invalid-id"].GetAsync();
+}
+catch (ODataError error)
+{
+    if (error.Error.Code == "ErrorItemNotFound")
+    {
+        Console.WriteLine("Message not found");
+    }
+    else
+    {
+        Console.WriteLine($"Error: {error.Error.Message}");
+    }
+}
+```
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Message Model" href="https://learn.microsoft.com/graph/api/resources/message" icon="envelope">
+    Message resource properties
+  </Card>
+  <Card title="Calendar API" href="/api-reference/calendar" icon="calendar">
+    Calendar operations
+  </Card>
+  <Card title="Events API" href="/api-reference/events" icon="calendar-days">
+    Calendar event operations
+  </Card>
+  <Card title="Mail Folders" href="https://learn.microsoft.com/graph/api/resources/mailfolder" icon="folder">
+    Mail folder management
+  </Card>
+</CardGroup>

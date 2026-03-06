@@ -1,0 +1,651 @@
+---
+title: Working with Files
+description: Learn how to access and manage files in OneDrive and SharePoint using Microsoft Graph .NET SDK
+---
+
+This guide covers file operations in OneDrive and SharePoint, including uploading, downloading, searching, and managing files and folders.
+
+## Getting Started
+
+```csharp
+using Microsoft.Graph;
+using Microsoft.Graph.Models;
+using System.IO;
+
+var graphClient = new GraphServiceClient(authProvider);
+```
+
+## Accessing Drives
+
+### Get User's Default Drive
+
+```csharp
+var drive = await graphClient.Me.Drive
+    .GetAsync();
+
+Console.WriteLine($"Drive ID: {drive.Id}");
+Console.WriteLine($"Drive Type: {drive.DriveType}");
+Console.WriteLine($"Total Space: {drive.Quota.Total} bytes");
+Console.WriteLine($"Used Space: {drive.Quota.Used} bytes");
+```
+
+### Get Specific Drive
+
+```csharp
+var drive = await graphClient.Drives["drive-id"]
+    .GetAsync();
+```
+
+### List User's Drives
+
+```csharp
+var drives = await graphClient.Me.Drives
+    .GetAsync();
+
+foreach (var drive in drives.Value)
+{
+    Console.WriteLine($"{drive.Name} - {drive.DriveType}");
+}
+```
+
+## Working with Files and Folders
+
+### List Items in Root
+
+```csharp
+var items = await graphClient.Me.Drive.Root.Children
+    .GetAsync();
+
+foreach (var item in items.Value)
+{
+    if (item.Folder != null)
+    {
+        Console.WriteLine($"Folder: {item.Name}");
+    }
+    else if (item.File != null)
+    {
+        Console.WriteLine($"File: {item.Name} ({item.Size} bytes)");
+    }
+}
+```
+
+### List Items in Specific Folder
+
+<CodeGroup>
+```csharp By Item ID
+var items = await graphClient.Me.Drive.Items["folder-id"].Children
+    .GetAsync();
+```
+
+```csharp By Path
+var items = await graphClient.Me.Drive.Root
+    .ItemWithPath("/Documents/Projects")
+    .Children
+    .GetAsync();
+```
+</CodeGroup>
+
+### Get Item Details
+
+```csharp
+// Get item by ID
+var item = await graphClient.Me.Drive.Items["item-id"]
+    .GetAsync();
+
+// Get item by path
+var item = await graphClient.Me.Drive.Root
+    .ItemWithPath("/Documents/report.docx")
+    .GetAsync();
+
+Console.WriteLine($"Name: {item.Name}");
+Console.WriteLine($"Size: {item.Size}");
+Console.WriteLine($"Modified: {item.LastModifiedDateTime}");
+Console.WriteLine($"Web URL: {item.WebUrl}");
+```
+
+## Creating Folders
+
+### Create a Folder
+
+```csharp
+var newFolder = new DriveItem
+{
+    Name = "Project Files",
+    Folder = new Folder()
+};
+
+var createdFolder = await graphClient.Me.Drive.Root.Children
+    .PostAsync(newFolder);
+
+Console.WriteLine($"Created folder: {createdFolder.Id}");
+```
+
+### Create Nested Folders
+
+```csharp
+// Create parent folder
+var parentFolder = new DriveItem
+{
+    Name = "Projects",
+    Folder = new Folder()
+};
+
+var parent = await graphClient.Me.Drive.Root.Children
+    .PostAsync(parentFolder);
+
+// Create child folder
+var childFolder = new DriveItem
+{
+    Name = "Alpha",
+    Folder = new Folder()
+};
+
+var child = await graphClient.Me.Drive.Items[parent.Id].Children
+    .PostAsync(childFolder);
+```
+
+## Uploading Files
+
+### Upload Small File (< 4MB)
+
+<Steps>
+  <Step title="Read file content">
+    ```csharp
+    var filePath = "path/to/document.pdf";
+    var fileName = Path.GetFileName(filePath);
+    using var fileStream = File.OpenRead(filePath);
+    ```
+  </Step>
+
+  <Step title="Upload to drive">
+    ```csharp
+    var uploadedFile = await graphClient.Me.Drive.Root
+        .ItemWithPath(fileName)
+        .Content
+        .PutAsync(fileStream);
+
+    Console.WriteLine($"Uploaded: {uploadedFile.Name}");
+    Console.WriteLine($"File ID: {uploadedFile.Id}");
+    ```
+  </Step>
+</Steps>
+
+### Upload to Specific Folder
+
+```csharp
+var filePath = "document.docx";
+using var stream = File.OpenRead(filePath);
+
+var uploadedFile = await graphClient.Me.Drive.Items["folder-id"]
+    .ItemWithPath(Path.GetFileName(filePath))
+    .Content
+    .PutAsync(stream);
+```
+
+### Upload with Metadata
+
+```csharp
+// First, create the item
+var driveItem = new DriveItem
+{
+    Name = "report.pdf",
+    File = new Microsoft.Graph.Models.File()
+};
+
+var item = await graphClient.Me.Drive.Root.Children
+    .PostAsync(driveItem);
+
+// Then upload content
+using var stream = File.OpenRead("report.pdf");
+await graphClient.Me.Drive.Items[item.Id].Content
+    .PutAsync(stream);
+```
+
+## Downloading Files
+
+### Download File Content
+
+```csharp
+var stream = await graphClient.Me.Drive.Items["item-id"]
+    .Content
+    .GetAsync();
+
+using var fileStream = File.Create("downloaded-file.pdf");
+await stream.CopyToAsync(fileStream);
+```
+
+### Download by Path
+
+```csharp
+var stream = await graphClient.Me.Drive.Root
+    .ItemWithPath("/Documents/report.pdf")
+    .Content
+    .GetAsync();
+
+using var fileStream = File.Create("local-report.pdf");
+await stream.CopyToAsync(fileStream);
+```
+
+## Searching Files
+
+### Search by Name
+
+```csharp
+var results = await graphClient.Me.Drive.Root
+    .Search("report")
+    .GetAsync();
+
+foreach (var item in results.Value)
+{
+    Console.WriteLine($"{item.Name} - {item.WebUrl}");
+}
+```
+
+### Search with Query Parameters
+
+```csharp
+var results = await graphClient.Me.Drive.Root
+    .Search("*.pdf")
+    .GetAsync(requestConfiguration =>
+    {
+        requestConfiguration.QueryParameters.Select = new[] 
+        { 
+            "name", 
+            "size", 
+            "lastModifiedDateTime" 
+        };
+    });
+```
+
+## Copying and Moving Files
+
+### Copy a File
+
+<Steps>
+  <Step title="Create copy reference">
+    ```csharp
+    var copyBody = new CopyPostRequestBody
+    {
+        Name = "report-copy.pdf",
+        ParentReference = new ItemReference
+        {
+            DriveId = "drive-id",
+            Id = "destination-folder-id"
+        }
+    };
+    ```
+  </Step>
+
+  <Step title="Initiate copy operation">
+    ```csharp
+    await graphClient.Me.Drive.Items["item-id"]
+        .Copy
+        .PostAsync(copyBody);
+    ```
+  </Step>
+</Steps>
+
+### Move a File
+
+```csharp
+var updateItem = new DriveItem
+{
+    ParentReference = new ItemReference
+    {
+        Id = "destination-folder-id"
+    }
+};
+
+var movedItem = await graphClient.Me.Drive.Items["item-id"]
+    .PatchAsync(updateItem);
+```
+
+### Rename a File
+
+```csharp
+var updateItem = new DriveItem
+{
+    Name = "new-filename.pdf"
+};
+
+await graphClient.Me.Drive.Items["item-id"]
+    .PatchAsync(updateItem);
+```
+
+## Deleting Files
+
+### Delete a File
+
+```csharp
+await graphClient.Me.Drive.Items["item-id"]
+    .DeleteAsync();
+```
+
+### Delete a Folder and Contents
+
+```csharp
+// This will delete the folder and all its contents
+await graphClient.Me.Drive.Items["folder-id"]
+    .DeleteAsync();
+```
+
+## Sharing Files
+
+### Create a Sharing Link
+
+<CodeGroup>
+```csharp View-Only Link
+var sharingLink = new CreateLinkPostRequestBody
+{
+    Type = "view",
+    Scope = "anonymous"
+};
+
+var permission = await graphClient.Me.Drive.Items["item-id"]
+    .CreateLink
+    .PostAsync(sharingLink);
+
+Console.WriteLine($"Share link: {permission.Link.WebUrl}");
+```
+
+```csharp Edit Link
+var sharingLink = new CreateLinkPostRequestBody
+{
+    Type = "edit",
+    Scope = "organization"
+};
+
+var permission = await graphClient.Me.Drive.Items["item-id"]
+    .CreateLink
+    .PostAsync(sharingLink);
+```
+
+```csharp Password-Protected Link
+var sharingLink = new CreateLinkPostRequestBody
+{
+    Type = "view",
+    Scope = "anonymous",
+    Password = "SecureP@ssw0rd"
+};
+
+var permission = await graphClient.Me.Drive.Items["item-id"]
+    .CreateLink
+    .PostAsync(sharingLink);
+```
+</CodeGroup>
+
+### Share with Specific Users
+
+```csharp
+var invitation = new InvitePostRequestBody
+{
+    RequireSignIn = true,
+    SendInvitation = true,
+    Roles = new List<string> { "write" },
+    Recipients = new List<DriveRecipient>
+    {
+        new DriveRecipient
+        {
+            Email = "user@example.com"
+        }
+    },
+    Message = "Here's the file you requested."
+};
+
+var permissions = await graphClient.Me.Drive.Items["item-id"]
+    .Invite
+    .PostAsync(invitation);
+```
+
+## Working with SharePoint
+
+### Get SharePoint Site Drive
+
+```csharp
+var site = await graphClient.Sites["site-id"]
+    .GetAsync();
+
+var drive = await graphClient.Sites["site-id"].Drive
+    .GetAsync();
+```
+
+### Access Document Library
+
+```csharp
+// List all document libraries
+var drives = await graphClient.Sites["site-id"].Drives
+    .GetAsync();
+
+foreach (var drive in drives.Value)
+{
+    Console.WriteLine($"{drive.Name} - {drive.WebUrl}");
+}
+
+// Access specific library
+var items = await graphClient.Sites["site-id"]
+    .Drives["drive-id"]
+    .Root
+    .Children
+    .GetAsync();
+```
+
+## Complete Example
+
+```csharp
+using Microsoft.Graph;
+using Microsoft.Graph.Models;
+using Microsoft.Graph.Models.ODataErrors;
+
+public class FileManager
+{
+    private readonly GraphServiceClient _graphClient;
+
+    public FileManager(GraphServiceClient graphClient)
+    {
+        _graphClient = graphClient;
+    }
+
+    public async Task<DriveItem> UploadAndShareFileAsync(
+        string localFilePath,
+        string remoteFolderPath,
+        string shareWithEmail)
+    {
+        try
+        {
+            var fileName = Path.GetFileName(localFilePath);
+            
+            // 1. Create folder if it doesn't exist
+            var folder = await GetOrCreateFolderAsync(remoteFolderPath);
+
+            // 2. Upload file
+            DriveItem uploadedFile;
+            using (var stream = File.OpenRead(localFilePath))
+            {
+                uploadedFile = await _graphClient.Me.Drive.Items[folder.Id]
+                    .ItemWithPath(fileName)
+                    .Content
+                    .PutAsync(stream);
+            }
+
+            Console.WriteLine($"Uploaded: {uploadedFile.Name}");
+
+            // 3. Share with user
+            var invitation = new InvitePostRequestBody
+            {
+                RequireSignIn = true,
+                SendInvitation = true,
+                Roles = new List<string> { "write" },
+                Recipients = new List<DriveRecipient>
+                {
+                    new DriveRecipient { Email = shareWithEmail }
+                },
+                Message = $"Sharing '{fileName}' with you."
+            };
+
+            await _graphClient.Me.Drive.Items[uploadedFile.Id]
+                .Invite
+                .PostAsync(invitation);
+
+            Console.WriteLine($"Shared with: {shareWithEmail}");
+
+            return uploadedFile;
+        }
+        catch (ODataError error)
+        {
+            Console.WriteLine($"Error: {error.Error.Message}");
+            throw;
+        }
+    }
+
+    private async Task<DriveItem> GetOrCreateFolderAsync(string path)
+    {
+        try
+        {
+            // Try to get existing folder
+            return await _graphClient.Me.Drive.Root
+                .ItemWithPath(path)
+                .GetAsync();
+        }
+        catch (ODataError)
+        {
+            // Create folder if it doesn't exist
+            var pathParts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            DriveItem currentFolder = null;
+            string currentPath = "";
+
+            foreach (var part in pathParts)
+            {
+                currentPath += "/" + part;
+                
+                try
+                {
+                    currentFolder = await _graphClient.Me.Drive.Root
+                        .ItemWithPath(currentPath)
+                        .GetAsync();
+                }
+                catch
+                {
+                    var newFolder = new DriveItem
+                    {
+                        Name = part,
+                        Folder = new Folder()
+                    };
+
+                    if (currentFolder == null)
+                    {
+                        currentFolder = await _graphClient.Me.Drive.Root.Children
+                            .PostAsync(newFolder);
+                    }
+                    else
+                    {
+                        currentFolder = await _graphClient.Me.Drive.Items[currentFolder.Id]
+                            .Children
+                            .PostAsync(newFolder);
+                    }
+                }
+            }
+
+            return currentFolder;
+        }
+    }
+
+    public async Task<List<DriveItem>> SearchAndDownloadFilesAsync(
+        string searchQuery,
+        string downloadPath)
+    {
+        var results = await _graphClient.Me.Drive.Root
+            .Search(searchQuery)
+            .GetAsync();
+
+        var downloadedFiles = new List<DriveItem>();
+        Directory.CreateDirectory(downloadPath);
+
+        foreach (var item in results.Value)
+        {
+            if (item.File != null) // Only download files, not folders
+            {
+                var stream = await _graphClient.Me.Drive.Items[item.Id]
+                    .Content
+                    .GetAsync();
+
+                var filePath = Path.Combine(downloadPath, item.Name);
+                using var fileStream = File.Create(filePath);
+                await stream.CopyToAsync(fileStream);
+
+                Console.WriteLine($"Downloaded: {item.Name}");
+                downloadedFiles.Add(item);
+            }
+        }
+
+        return downloadedFiles;
+    }
+
+    public async Task OrganizeFilesByTypeAsync(string sourceFolderId)
+    {
+        var items = await _graphClient.Me.Drive.Items[sourceFolderId]
+            .Children
+            .GetAsync();
+
+        // Group by file extension
+        var fileGroups = items.Value
+            .Where(i => i.File != null)
+            .GroupBy(i => Path.GetExtension(i.Name).ToLower());
+
+        foreach (var group in fileGroups)
+        {
+            var extension = group.Key.TrimStart('.');
+            var folderName = string.IsNullOrEmpty(extension) ? "Other" : extension.ToUpper();
+
+            // Create folder for file type
+            var folder = new DriveItem
+            {
+                Name = folderName,
+                Folder = new Folder()
+            };
+
+            DriveItem typeFolder;
+            try
+            {
+                typeFolder = await _graphClient.Me.Drive.Items[sourceFolderId]
+                    .Children
+                    .PostAsync(folder);
+            }
+            catch (ODataError)
+            {
+                // Folder might already exist
+                var existing = items.Value.FirstOrDefault(
+                    i => i.Name == folderName && i.Folder != null
+                );
+                
+                if (existing != null)
+                    typeFolder = existing;
+                else
+                    continue;
+            }
+
+            // Move files to folder
+            foreach (var file in group)
+            {
+                var updateItem = new DriveItem
+                {
+                    ParentReference = new ItemReference
+                    {
+                        Id = typeFolder.Id
+                    }
+                };
+
+                await _graphClient.Me.Drive.Items[file.Id]
+                    .PatchAsync(updateItem);
+            }
+
+            Console.WriteLine($"Organized {group.Count()} {folderName} files");
+        }
+    }
+}
+```
+
+## Next Steps
+
+- [Large File Upload](/guides/large-file-upload) - Upload files larger than 4MB
+- [Working with Mail](/guides/working-with-mail) - Send files as attachments
+- [API Reference](/api-reference/drive) - Complete Drive API reference

@@ -1,0 +1,674 @@
+---
+title: Change Notifications
+description: Learn how to receive real-time notifications when data changes in Microsoft Graph
+---
+
+Change notifications (webhooks) allow your application to receive real-time notifications when data changes in Microsoft Graph, eliminating the need for constant polling.
+
+## How Change Notifications Work
+
+<Steps>
+  <Step title="Subscribe to resource">
+    Your application creates a subscription to a specific resource (e.g., messages, events, files).
+  </Step>
+
+  <Step title="Receive notifications">
+    When the resource changes, Microsoft Graph sends a notification to your notification URL.
+  </Step>
+
+  <Step title="Process changes">
+    Your application processes the notification and retrieves updated data if needed.
+  </Step>
+
+  <Step title="Renew subscription">
+    Subscriptions expire after a maximum period and must be renewed to continue receiving notifications.
+  </Step>
+</Steps>
+
+## Supported Resources
+
+Common resources that support change notifications:
+
+- **Messages** - New emails, updates to existing messages
+- **Events** - Calendar events created, updated, or deleted
+- **Contacts** - Contact changes
+- **Drive Items** - File and folder changes in OneDrive/SharePoint
+- **Groups** - Group membership and property changes
+- **Users** - User property changes
+- **Teams** - Chat messages, channel messages, teams changes
+
+## Getting Started
+
+```csharp
+using Microsoft.Graph;
+using Microsoft.Graph.Models;
+
+var graphClient = new GraphServiceClient(authProvider);
+```
+
+## Creating Subscriptions
+
+### Subscribe to User Messages
+
+<Steps>
+  <Step title="Define subscription">
+    ```csharp
+    var subscription = new Subscription
+    {
+        ChangeType = "created,updated",
+        NotificationUrl = "https://yourdomain.com/api/notifications",
+        Resource = "me/messages",
+        ExpirationDateTime = DateTimeOffset.UtcNow.AddHours(1),
+        ClientState = "SecretClientState"
+    };
+    ```
+  </Step>
+
+  <Step title="Create subscription">
+    ```csharp
+    var createdSubscription = await graphClient.Subscriptions
+        .PostAsync(subscription);
+
+    Console.WriteLine($"Subscription ID: {createdSubscription.Id}");
+    Console.WriteLine($"Expires: {createdSubscription.ExpirationDateTime}");
+    ```
+  </Step>
+</Steps>
+
+### Subscribe to Calendar Events
+
+```csharp
+var subscription = new Subscription
+{
+    ChangeType = "created,updated,deleted",
+    NotificationUrl = "https://yourdomain.com/api/notifications",
+    Resource = "me/events",
+    ExpirationDateTime = DateTimeOffset.UtcNow.AddDays(3),
+    ClientState = "SecretClientState"
+};
+
+var createdSubscription = await graphClient.Subscriptions
+    .PostAsync(subscription);
+```
+
+### Subscribe to Drive Changes
+
+```csharp
+var subscription = new Subscription
+{
+    ChangeType = "created,updated,deleted",
+    NotificationUrl = "https://yourdomain.com/api/notifications",
+    Resource = "me/drive/root",
+    ExpirationDateTime = DateTimeOffset.UtcNow.AddDays(3),
+    ClientState = "SecretClientState"
+};
+
+var createdSubscription = await graphClient.Subscriptions
+    .PostAsync(subscription);
+```
+
+### Subscribe to Group Changes
+
+```csharp
+var subscription = new Subscription
+{
+    ChangeType = "updated",
+    NotificationUrl = "https://yourdomain.com/api/notifications",
+    Resource = $"groups/{groupId}",
+    ExpirationDateTime = DateTimeOffset.UtcNow.AddHours(1),
+    ClientState = "SecretClientState"
+};
+
+var createdSubscription = await graphClient.Subscriptions
+    .PostAsync(subscription);
+```
+
+## Subscription with Resource Data
+
+<Note>
+Some resources support including resource data in notifications, reducing the need for additional API calls.
+</Note>
+
+### Subscribe with Resource Data
+
+```csharp
+var subscription = new Subscription
+{
+    ChangeType = "created",
+    NotificationUrl = "https://yourdomain.com/api/notifications",
+    Resource = "me/messages",
+    ExpirationDateTime = DateTimeOffset.UtcNow.AddHours(1),
+    ClientState = "SecretClientState",
+    IncludeResourceData = true,
+    EncryptionCertificate = Convert.ToBase64String(certificateBytes),
+    EncryptionCertificateId = "MyCertId"
+};
+
+var createdSubscription = await graphClient.Subscriptions
+    .PostAsync(subscription);
+```
+
+## Managing Subscriptions
+
+### List Active Subscriptions
+
+```csharp
+var subscriptions = await graphClient.Subscriptions
+    .GetAsync();
+
+foreach (var sub in subscriptions.Value)
+{
+    Console.WriteLine($"ID: {sub.Id}");
+    Console.WriteLine($"Resource: {sub.Resource}");
+    Console.WriteLine($"Expires: {sub.ExpirationDateTime}");
+    Console.WriteLine($"Change Types: {sub.ChangeType}");
+    Console.WriteLine();
+}
+```
+
+### Get Subscription Details
+
+```csharp
+var subscription = await graphClient.Subscriptions["subscription-id"]
+    .GetAsync();
+
+Console.WriteLine($"Notification URL: {subscription.NotificationUrl}");
+Console.WriteLine($"Expiration: {subscription.ExpirationDateTime}");
+```
+
+### Renew Subscription
+
+<CodeGroup>
+```csharp Extend by Time
+var subscriptionUpdate = new Subscription
+{
+    ExpirationDateTime = DateTimeOffset.UtcNow.AddDays(3)
+};
+
+var renewed = await graphClient.Subscriptions["subscription-id"]
+    .PatchAsync(subscriptionUpdate);
+```
+
+```csharp Auto-Renewal Logic
+public async Task<Subscription> AutoRenewSubscriptionAsync(
+    string subscriptionId)
+{
+    var subscription = await graphClient.Subscriptions[subscriptionId]
+        .GetAsync();
+
+    // Check if subscription is expiring soon (within 24 hours)
+    if (subscription.ExpirationDateTime.Value.Subtract(DateTimeOffset.UtcNow) 
+        < TimeSpan.FromHours(24))
+    {
+        var update = new Subscription
+        {
+            ExpirationDateTime = DateTimeOffset.UtcNow.AddDays(3)
+        };
+
+        var renewed = await graphClient.Subscriptions[subscriptionId]
+            .PatchAsync(update);
+
+        Console.WriteLine($"Renewed subscription until {renewed.ExpirationDateTime}");
+        return renewed;
+    }
+
+    return subscription;
+}
+```
+</CodeGroup>
+
+### Delete Subscription
+
+```csharp
+await graphClient.Subscriptions["subscription-id"]
+    .DeleteAsync();
+
+Console.WriteLine("Subscription deleted");
+```
+
+## Notification Endpoint
+
+### Implement Notification Receiver
+
+Your notification endpoint must handle two types of requests:
+
+<CodeGroup>
+```csharp Validation Request
+[HttpPost("/api/notifications")]
+public IActionResult ReceiveNotification(
+    [FromQuery] string validationToken)
+{
+    // Respond to validation request
+    if (!string.IsNullOrEmpty(validationToken))
+    {
+        return Ok(validationToken);
+    }
+
+    // Process notification...
+    return Accepted();
+}
+```
+
+```csharp ASP.NET Core Complete Example
+[ApiController]
+[Route("api/[controller]")]
+public class NotificationsController : ControllerBase
+{
+    private readonly ILogger<NotificationsController> _logger;
+    private readonly GraphServiceClient _graphClient;
+    private const string ClientState = "SecretClientState";
+
+    public NotificationsController(
+        ILogger<NotificationsController> logger,
+        GraphServiceClient graphClient)
+    {
+        _logger = logger;
+        _graphClient = graphClient;
+    }
+
+    [HttpPost]
+    public async Task<IActionResult> Post(
+        [FromQuery] string validationToken,
+        [FromBody] ChangeNotificationCollection notifications)
+    {
+        // Handle validation
+        if (!string.IsNullOrEmpty(validationToken))
+        {
+            return Ok(validationToken);
+        }
+
+        // Process notifications
+        if (notifications?.Value != null)
+        {
+            foreach (var notification in notifications.Value)
+            {
+                // Verify client state
+                if (notification.ClientState != ClientState)
+                {
+                    _logger.LogWarning("Invalid client state");
+                    continue;
+                }
+
+                await ProcessNotificationAsync(notification);
+            }
+        }
+
+        return Accepted();
+    }
+
+    private async Task ProcessNotificationAsync(
+        ChangeNotification notification)
+    {
+        _logger.LogInformation($"Processing notification for {notification.Resource}");
+
+        switch (notification.Resource)
+        {
+            case var r when r.Contains("/messages/"):
+                await HandleMessageNotificationAsync(notification);
+                break;
+
+            case var r when r.Contains("/events/"):
+                await HandleEventNotificationAsync(notification);
+                break;
+
+            case var r when r.Contains("/drive/"):
+                await HandleDriveNotificationAsync(notification);
+                break;
+        }
+    }
+
+    private async Task HandleMessageNotificationAsync(
+        ChangeNotification notification)
+    {
+        try
+        {
+            // Extract message ID from resource path
+            var resourceParts = notification.Resource.Split('/');
+            var messageId = resourceParts.Last();
+
+            // Retrieve message details
+            var message = await _graphClient.Me.Messages[messageId]
+                .GetAsync();
+
+            _logger.LogInformation($"New message: {message.Subject}");
+            
+            // Process the message...
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error processing message notification");
+        }
+    }
+
+    private async Task HandleEventNotificationAsync(
+        ChangeNotification notification)
+    {
+        // Handle calendar event notifications
+        _logger.LogInformation($"Calendar event {notification.ChangeType}");
+    }
+
+    private async Task HandleDriveNotificationAsync(
+        ChangeNotification notification)
+    {
+        // Handle drive item notifications
+        _logger.LogInformation($"Drive item {notification.ChangeType}");
+    }
+}
+```
+</CodeGroup>
+
+## Notification Models
+
+```csharp
+public class ChangeNotificationCollection
+{
+    public List<ChangeNotification> Value { get; set; }
+}
+
+public class ChangeNotification
+{
+    public string SubscriptionId { get; set; }
+    public string ClientState { get; set; }
+    public string ChangeType { get; set; }
+    public string Resource { get; set; }
+    public DateTimeOffset SubscriptionExpirationDateTime { get; set; }
+    public string ResourceData { get; set; }
+    public ResourceDataObject ResourceDataValue { get; set; }
+}
+
+public class ResourceDataObject
+{
+    public string Id { get; set; }
+    public string ODataType { get; set; }
+    public string ODataId { get; set; }
+}
+```
+
+## Handling Notifications with Resource Data
+
+### Decrypt Resource Data
+
+```csharp
+public class NotificationWithDataController : ControllerBase
+{
+    private readonly X509Certificate2 _certificate;
+
+    [HttpPost]
+    public async Task<IActionResult> Post(
+        [FromBody] ChangeNotificationCollection notifications)
+    {
+        foreach (var notification in notifications.Value)
+        {
+            if (notification.EncryptedContent != null)
+            {
+                var decryptedData = DecryptContent(
+                    notification.EncryptedContent
+                );
+
+                // Process decrypted resource data
+                var message = JsonSerializer.Deserialize<Message>(decryptedData);
+                Console.WriteLine($"Subject: {message.Subject}");
+            }
+        }
+
+        return Accepted();
+    }
+
+    private string DecryptContent(EncryptedContent encryptedContent)
+    {
+        // Decrypt the symmetric key using certificate private key
+        using var rsa = _certificate.GetRSAPrivateKey();
+        var decryptedSymmetricKey = rsa.Decrypt(
+            Convert.FromBase64String(encryptedContent.DataKey),
+            RSAEncryptionPadding.OaepSHA1
+        );
+
+        // Decrypt the data using the symmetric key
+        using var aes = Aes.Create();
+        aes.Key = decryptedSymmetricKey;
+        aes.IV = Convert.FromBase64String(encryptedContent.DataIv);
+        aes.Mode = CipherMode.CBC;
+        aes.Padding = PaddingMode.PKCS7;
+
+        using var decryptor = aes.CreateDecryptor();
+        var encryptedData = Convert.FromBase64String(encryptedContent.Data);
+        var decryptedData = decryptor.TransformFinalBlock(
+            encryptedData, 
+            0, 
+            encryptedData.Length
+        );
+
+        return Encoding.UTF8.GetString(decryptedData);
+    }
+}
+```
+
+## Complete Example
+
+```csharp
+using Microsoft.Graph;
+using Microsoft.Graph.Models;
+
+public class ChangeNotificationManager
+{
+    private readonly GraphServiceClient _graphClient;
+    private readonly Dictionary<string, Subscription> _activeSubscriptions;
+
+    public ChangeNotificationManager(GraphServiceClient graphClient)
+    {
+        _graphClient = graphClient;
+        _activeSubscriptions = new Dictionary<string, Subscription>();
+    }
+
+    public async Task<Subscription> CreateMonitoredSubscriptionAsync(
+        string resource,
+        string changeType,
+        string notificationUrl,
+        TimeSpan duration)
+    {
+        var subscription = new Subscription
+        {
+            ChangeType = changeType,
+            NotificationUrl = notificationUrl,
+            Resource = resource,
+            ExpirationDateTime = DateTimeOffset.UtcNow.Add(duration),
+            ClientState = GenerateClientState()
+        };
+
+        var created = await _graphClient.Subscriptions
+            .PostAsync(subscription);
+
+        _activeSubscriptions[created.Id] = created;
+
+        // Start renewal timer
+        StartRenewalTimer(created.Id, duration);
+
+        return created;
+    }
+
+    private void StartRenewalTimer(string subscriptionId, TimeSpan duration)
+    {
+        // Renew when 80% of duration has elapsed
+        var renewalTime = duration.Multiply(0.8);
+        
+        var timer = new Timer(async _ =>
+        {
+            await RenewSubscriptionAsync(subscriptionId);
+        }, null, renewalTime, Timeout.InfiniteTimeSpan);
+    }
+
+    private async Task RenewSubscriptionAsync(string subscriptionId)
+    {
+        try
+        {
+            var update = new Subscription
+            {
+                ExpirationDateTime = DateTimeOffset.UtcNow.AddHours(1)
+            };
+
+            var renewed = await _graphClient.Subscriptions[subscriptionId]
+                .PatchAsync(update);
+
+            _activeSubscriptions[subscriptionId] = renewed;
+
+            Console.WriteLine($"Renewed subscription {subscriptionId}");
+
+            // Restart renewal timer
+            StartRenewalTimer(subscriptionId, TimeSpan.FromHours(1));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to renew subscription: {ex.Message}");
+        }
+    }
+
+    public async Task<List<Subscription>> ListActiveSubscriptionsAsync()
+    {
+        var subscriptions = await _graphClient.Subscriptions
+            .GetAsync();
+
+        return subscriptions.Value.ToList();
+    }
+
+    public async Task CleanupExpiredSubscriptionsAsync()
+    {
+        var subscriptions = await _graphClient.Subscriptions
+            .GetAsync();
+
+        foreach (var subscription in subscriptions.Value)
+        {
+            if (subscription.ExpirationDateTime < DateTimeOffset.UtcNow)
+            {
+                try
+                {
+                    await _graphClient.Subscriptions[subscription.Id]
+                        .DeleteAsync();
+                    
+                    Console.WriteLine($"Deleted expired subscription: {subscription.Id}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Failed to delete subscription: {ex.Message}");
+                }
+            }
+        }
+    }
+
+    private string GenerateClientState()
+    {
+        return Convert.ToBase64String(
+            Guid.NewGuid().ToByteArray()
+        );
+    }
+}
+
+// Usage
+public class Program
+{
+    public static async Task Main(string[] args)
+    {
+        var graphClient = new GraphServiceClient(authProvider);
+        var manager = new ChangeNotificationManager(graphClient);
+
+        // Subscribe to new messages
+        var messagesSub = await manager.CreateMonitoredSubscriptionAsync(
+            resource: "me/messages",
+            changeType: "created",
+            notificationUrl: "https://myapp.com/api/notifications",
+            duration: TimeSpan.FromHours(1)
+        );
+
+        Console.WriteLine($"Subscribed to messages: {messagesSub.Id}");
+
+        // Subscribe to calendar events
+        var eventsSub = await manager.CreateMonitoredSubscriptionAsync(
+            resource: "me/events",
+            changeType: "created,updated,deleted",
+            notificationUrl: "https://myapp.com/api/notifications",
+            duration: TimeSpan.FromHours(1)
+        );
+
+        Console.WriteLine($"Subscribed to events: {eventsSub.Id}");
+
+        // List all active subscriptions
+        var active = await manager.ListActiveSubscriptionsAsync();
+        Console.WriteLine($"Active subscriptions: {active.Count}");
+    }
+}
+```
+
+## Best Practices
+
+<Card title="Validate Client State" icon="shield-check">
+Always verify the client state in notifications to prevent unauthorized requests.
+</Card>
+
+<Card title="Implement Retry Logic" icon="rotate">
+Your notification endpoint should return 202 Accepted quickly. Process notifications asynchronously.
+</Card>
+
+<Card title="Handle Missed Notifications" icon="clock-rotate-left">
+Notifications aren't guaranteed. Implement periodic polling as a backup mechanism.
+</Card>
+
+<Card title="Renew Proactively" icon="calendar-plus">
+Renew subscriptions before they expire (e.g., at 80% of expiration time).
+</Card>
+
+<Card title="Secure Your Endpoint" icon="lock">
+Use HTTPS for notification URLs and validate the client state to ensure security.
+</Card>
+
+<Card title="Monitor Subscription Health" icon="heartbeat">
+Track subscription status and handle failures gracefully with alerting and automatic recovery.
+</Card>
+
+## Troubleshooting
+
+### Subscription Validation Fails
+
+Ensure your endpoint returns the validation token immediately:
+
+```csharp
+[HttpPost]
+public IActionResult Post([FromQuery] string validationToken)
+{
+    if (!string.IsNullOrEmpty(validationToken))
+    {
+        return Ok(validationToken); // Return token as plain text
+    }
+    
+    // Process notifications...
+}
+```
+
+### Not Receiving Notifications
+
+1. Verify subscription is active and not expired
+2. Check that notification URL is publicly accessible
+3. Ensure client state matches
+4. Review your endpoint logs for errors
+5. Test endpoint responds with 202 within 30 seconds
+
+### Handling High Notification Volume
+
+```csharp
+[HttpPost]
+public IActionResult Post([FromBody] ChangeNotificationCollection notifications)
+{
+    // Queue for background processing
+    foreach (var notification in notifications.Value)
+    {
+        _backgroundQueue.QueueNotification(notification);
+    }
+
+    // Return immediately
+    return Accepted();
+}
+```
+
+## Next Steps
+
+- [Working with Mail](/guides/working-with-mail) - Process email notifications
+- [Working with Calendar](/guides/working-with-calendar) - Handle event notifications
+- [API Reference](/api-reference/subscriptions) - Complete Subscriptions API reference

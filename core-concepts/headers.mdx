@@ -1,0 +1,623 @@
+---
+title: Custom Headers
+description: Learn how to add custom request headers and read response headers in Microsoft Graph API requests
+icon: heading
+---
+
+Custom headers allow you to control request behavior, handle conditional requests, and access metadata returned by the Microsoft Graph API. The SDK provides easy access to add request headers and read response headers.
+
+## Overview
+
+HTTP headers provide additional context and control for API requests:
+
+- **Request Headers** - Sent to the API to control behavior
+- **Response Headers** - Returned by the API with metadata
+
+From headers.md:3-4:
+> The .NET Client Library allows you to add your own custom request headers and inspect the response headers that come back from the Graph service.
+
+## Adding Request Headers
+
+Use the request configuration object to add custom headers to any API call.
+
+### Basic Header Addition
+
+From headers.md:8-18:
+
+```csharp
+using Microsoft.Graph;
+
+var message = await graphClient
+    .Me
+    .Messages["message-id"]
+    .GetAsync(config =>
+    {
+        config.Headers.Add("Etag", "etag");
+        config.Headers.Add("If-Match", "ifmatch");
+    });
+```
+
+### Multiple Headers
+
+```csharp
+var user = await graphClient.Me.GetAsync(config =>
+{
+    config.Headers.Add("Prefer", "return=minimal");
+    config.Headers.Add("ConsistencyLevel", "eventual");
+    config.Headers.Add("Cache-Control", "no-cache");
+});
+```
+
+<Note>
+  Headers are added to the `config.Headers` collection within the request configuration lambda. The SDK automatically includes authentication and other required headers.
+</Note>
+
+## Common Request Headers
+
+### ConsistencyLevel Header
+
+Required for advanced query capabilities and some $count operations.
+
+```csharp
+// Required for contains filter
+var users = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "contains(displayName, 'John')";
+    config.Headers.Add("ConsistencyLevel", "eventual");
+});
+
+// Required for $count with advanced queries
+var usersWithCount = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Count = true;
+    config.QueryParameters.Search = "\"displayName:John\"";
+    config.Headers.Add("ConsistencyLevel", "eventual");
+});
+```
+
+<Warning>
+  Using `ConsistencyLevel: eventual` may result in slightly stale data as it queries a replicated data store instead of the primary.
+</Warning>
+
+### Prefer Header
+
+Control response behavior and formatting.
+
+```csharp
+// Minimal response (return only changed properties after update)
+var updatedUser = await graphClient.Me.PatchAsync(userUpdate, config =>
+{
+    config.Headers.Add("Prefer", "return=minimal");
+});
+
+// Representation response (return full object after update)
+var updatedUser = await graphClient.Me.PatchAsync(userUpdate, config =>
+{
+    config.Headers.Add("Prefer", "return=representation");
+});
+
+// Outlook-specific preferences
+var message = await graphClient.Me.Messages["id"].GetAsync(config =>
+{
+    // Get body as text instead of HTML
+    config.Headers.Add("Prefer", "outlook.body-content-type=\"text\"");
+});
+
+// Timezone preference for calendar events
+var events = await graphClient.Me.Events.GetAsync(config =>
+{
+    config.Headers.Add("Prefer", "outlook.timezone=\"Pacific Standard Time\"");
+});
+```
+
+### If-Match and If-None-Match Headers
+
+Conditional requests for optimistic concurrency control.
+
+```csharp
+// Update only if resource hasn't changed (using ETag)
+var etag = "W/\"abc123\""; // ETag from previous GET
+
+try
+{
+    var updatedUser = await graphClient.Me.PatchAsync(userUpdate, config =>
+    {
+        config.Headers.Add("If-Match", etag);
+    });
+}
+catch (ODataError ex) when (ex.ResponseStatusCode == 412)
+{
+    Console.WriteLine("Resource was modified by another request");
+    // Fetch latest version and retry
+}
+
+// Get resource only if it has changed
+var user = await graphClient.Me.GetAsync(config =>
+{
+    config.Headers.Add("If-None-Match", etag);
+});
+// Returns 304 Not Modified if unchanged
+```
+
+### Cache-Control Header
+
+Control caching behavior.
+
+```csharp
+// Bypass cache
+var user = await graphClient.Me.GetAsync(config =>
+{
+    config.Headers.Add("Cache-Control", "no-cache");
+});
+
+// Don't store in cache
+var messages = await graphClient.Me.Messages.GetAsync(config =>
+{
+    config.Headers.Add("Cache-Control", "no-store");
+});
+```
+
+### Accept Header
+
+Request specific content types (usually set automatically by SDK).
+
+```csharp
+// Request JSON response (default)
+var user = await graphClient.Me.GetAsync(config =>
+{
+    config.Headers.Add("Accept", "application/json");
+});
+
+// For specific scenarios requiring different formats
+var photo = await graphClient.Me.Photo.Content.GetAsync(config =>
+{
+    config.Headers.Add("Accept", "image/jpeg");
+});
+```
+
+## Response Headers
+
+While the SDK focuses on strongly-typed response objects, you can access response headers when needed.
+
+### Accessing Response Metadata
+
+```csharp
+// Most SDK methods return strongly-typed objects
+// For response headers, you may need to use lower-level APIs
+
+// Example: Get message with ETag from response
+var message = await graphClient.Me.Messages["id"].GetAsync();
+
+// ETag is typically available in AdditionalData
+if (message.AdditionalData?.TryGetValue("@odata.etag", out var etagValue) == true)
+{
+    var etag = etagValue.ToString();
+    Console.WriteLine($"ETag: {etag}");
+}
+```
+
+### Common Response Headers
+
+#### ETag Header
+
+Entity tag for optimistic concurrency control.
+
+```csharp
+var user = await graphClient.Me.GetAsync();
+
+// ETag often available in OData metadata
+if (user.AdditionalData?.TryGetValue("@odata.etag", out var etagObj) == true)
+{
+    var etag = etagObj.ToString();
+    
+    // Use ETag for conditional update
+    var update = new User { JobTitle = "Senior Developer" };
+    
+    try
+    {
+        await graphClient.Me.PatchAsync(update, config =>
+        {
+            config.Headers.Add("If-Match", etag);
+        });
+    }
+    catch (ODataError ex) when (ex.ResponseStatusCode == 412)
+    {
+        Console.WriteLine("Precondition failed - resource was modified");
+    }
+}
+```
+
+#### Retry-After Header
+
+Returned when throttled, indicates when to retry.
+
+```csharp
+try
+{
+    var users = await graphClient.Users.GetAsync();
+}
+catch (ODataError ex) when (ex.ResponseStatusCode == 429)
+{
+    // Check for Retry-After in error details
+    if (ex.Error?.InnerError?.AdditionalData?.TryGetValue("Retry-After", out var retryAfter) == true)
+    {
+        var seconds = int.Parse(retryAfter.ToString());
+        Console.WriteLine($"Throttled. Retry after {seconds} seconds");
+        
+        await Task.Delay(TimeSpan.FromSeconds(seconds));
+        // Retry request
+    }
+}
+```
+
+#### Location Header
+
+Returned after POST requests, contains URL of created resource.
+
+```csharp
+var newGroup = new Group
+{
+    DisplayName = "New Team",
+    MailEnabled = false,
+    MailNickname = "newteam",
+    SecurityEnabled = true
+};
+
+var group = await graphClient.Groups.PostAsync(newGroup);
+
+// The created resource URL is typically in the id property
+Console.WriteLine($"Created group: {group.Id}");
+Console.WriteLine($"URL: https://graph.microsoft.com/v1.0/groups/{group.Id}");
+```
+
+## Advanced Header Scenarios
+
+### Custom Header for All Requests
+
+```csharp
+public class CustomHeaderMiddleware : DelegatingHandler
+{
+    private readonly string _headerName;
+    private readonly string _headerValue;
+    
+    public CustomHeaderMiddleware(string headerName, string headerValue)
+    {
+        _headerName = headerName;
+        _headerValue = headerValue;
+    }
+    
+    protected override async Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        request.Headers.Add(_headerName, _headerValue);
+        return await base.SendAsync(request, cancellationToken);
+    }
+}
+
+// Configure with custom HttpClient
+var handler = new CustomHeaderMiddleware("X-Custom-Header", "CustomValue");
+var httpClient = new HttpClient(handler);
+
+var graphClient = new GraphServiceClient(httpClient, credential, scopes);
+```
+
+### Conditional Request Pattern
+
+```csharp
+public class ConditionalUpdateHelper
+{
+    private readonly GraphServiceClient _graphClient;
+    
+    public ConditionalUpdateHelper(GraphServiceClient graphClient)
+    {
+        _graphClient = graphClient;
+    }
+    
+    public async Task<User> UpdateUserWithETagAsync(User updates)
+    {
+        // Get current user with ETag
+        var currentUser = await _graphClient.Me.GetAsync();
+        
+        string etag = null;
+        if (currentUser.AdditionalData?.TryGetValue("@odata.etag", out var etagObj) == true)
+        {
+            etag = etagObj.ToString();
+        }
+        
+        if (string.IsNullOrEmpty(etag))
+        {
+            throw new InvalidOperationException("ETag not available");
+        }
+        
+        // Attempt update with If-Match
+        try
+        {
+            return await _graphClient.Me.PatchAsync(updates, config =>
+            {
+                config.Headers.Add("If-Match", etag);
+            });
+        }
+        catch (ODataError ex) when (ex.ResponseStatusCode == 412)
+        {
+            throw new InvalidOperationException(
+                "Resource was modified by another request. Please retry.", ex);
+        }
+    }
+}
+
+// Usage
+var helper = new ConditionalUpdateHelper(graphClient);
+
+var updates = new User
+{
+    JobTitle = "Senior Developer"
+};
+
+try
+{
+    var updated = await helper.UpdateUserWithETagAsync(updates);
+    Console.WriteLine("Update successful");
+}
+catch (InvalidOperationException ex)
+{
+    Console.WriteLine($"Update failed: {ex.Message}");
+    // Handle conflict
+}
+```
+
+### Batch Requests with Custom Headers
+
+```csharp
+// Custom headers can be added to individual batch request steps
+var batchRequestContent = new BatchRequestContentCollection(graphClient);
+
+// Add request with custom headers
+var userRequest = graphClient.Users["user-id"].ToGetRequestInformation();
+userRequest.Headers.Add("ConsistencyLevel", "eventual");
+
+var messageRequest = graphClient.Me.Messages["message-id"].ToGetRequestInformation();
+messageRequest.Headers.Add("Prefer", "outlook.body-content-type=\"text\"");
+
+// Note: Batch request implementation may vary
+// Check batch requests documentation for current syntax
+```
+
+## Header Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use ConsistencyLevel judiciously">
+    Only add `ConsistencyLevel: eventual` when required for specific operations:
+    
+    ```csharp
+    // Required - contains filter
+    config.Headers.Add("ConsistencyLevel", "eventual");
+    
+    // Not required - simple filter
+    config.QueryParameters.Filter = "department eq 'Engineering'";
+    // Don't add ConsistencyLevel here
+    ```
+  </Accordion>
+  
+  <Accordion title="Implement ETag-based updates for critical data">
+    Use conditional updates to prevent lost updates:
+    
+    ```csharp
+    // Good - uses ETag to prevent conflicts
+    var user = await graphClient.Me.GetAsync();
+    var etag = GetETag(user);
+    
+    await graphClient.Me.PatchAsync(updates, config =>
+        config.Headers.Add("If-Match", etag));
+    
+    // Bad - may overwrite concurrent changes
+    await graphClient.Me.PatchAsync(updates);
+    ```
+  </Accordion>
+  
+  <Accordion title="Handle Retry-After header when throttled">
+    Always respect the Retry-After header:
+    
+    ```csharp
+    catch (ODataError ex) when (ex.ResponseStatusCode == 429)
+    {
+        var retryAfter = GetRetryAfter(ex);
+        await Task.Delay(TimeSpan.FromSeconds(retryAfter));
+        // Retry
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Use Prefer header for response optimization">
+    Reduce payload size with appropriate Prefer values:
+    
+    ```csharp
+    // Return minimal response after update
+    config.Headers.Add("Prefer", "return=minimal");
+    
+    // Only when you need the full updated object
+    config.Headers.Add("Prefer", "return=representation");
+    ```
+  </Accordion>
+  
+  <Accordion title="Document custom headers in your code">
+    Make header usage clear:
+    
+    ```csharp
+    // ConsistencyLevel required for advanced query with $count
+    var users = await graphClient.Users.GetAsync(config =>
+    {
+        config.Headers.Add("ConsistencyLevel", "eventual");
+        config.QueryParameters.Count = true;
+        config.QueryParameters.Filter = "contains(displayName, 'John')";
+    });
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Common Header Patterns
+
+### Timezone-Aware Calendar Queries
+
+```csharp
+public async Task<List<Event>> GetEventsInTimezoneAsync(
+    string timezone = "Pacific Standard Time")
+{
+    var events = await graphClient.Me.Events.GetAsync(config =>
+    {
+        config.Headers.Add("Prefer", $"outlook.timezone=\"{timezone}\"");
+        config.QueryParameters.Select = new[] 
+        { 
+            "subject", 
+            "start", 
+            "end", 
+            "location" 
+        };
+        config.QueryParameters.Orderby = new[] { "start/dateTime" };
+    });
+    
+    return events.Value;
+}
+```
+
+### Optimistic Concurrency Update
+
+```csharp
+public async Task<T> UpdateWithConcurrencyCheckAsync<T>(
+    Func<Task<T>> getResource,
+    Func<string, T, Task<T>> updateResource,
+    T updates) where T : class
+{
+    int maxRetries = 3;
+    
+    for (int i = 0; i < maxRetries; i++)
+    {
+        // Get current version
+        var current = await getResource();
+        
+        // Extract ETag
+        string etag = null;
+        if (current is IParsable parsable)
+        {
+            parsable.AdditionalData?.TryGetValue("@odata.etag", out var etagObj);
+            etag = etagObj?.ToString();
+        }
+        
+        if (string.IsNullOrEmpty(etag))
+        {
+            throw new InvalidOperationException("ETag not available");
+        }
+        
+        try
+        {
+            // Try update with ETag
+            return await updateResource(etag, updates);
+        }
+        catch (ODataError ex) when (ex.ResponseStatusCode == 412 && i < maxRetries - 1)
+        {
+            Console.WriteLine($"Conflict detected. Retry {i + 1}/{maxRetries}");
+            await Task.Delay(TimeSpan.FromMilliseconds(500 * (i + 1)));
+        }
+    }
+    
+    throw new InvalidOperationException("Failed to update after max retries");
+}
+
+// Usage
+await UpdateWithConcurrencyCheckAsync(
+    () => graphClient.Me.GetAsync(),
+    (etag, updates) => graphClient.Me.PatchAsync(updates, config =>
+        config.Headers.Add("If-Match", etag)),
+    new User { JobTitle = "Senior Developer" }
+);
+```
+
+### Advanced Query with Consistency
+
+```csharp
+public async Task<UserCollectionResponse> SearchUsersWithCountAsync(
+    string searchTerm,
+    int pageSize = 50)
+{
+    return await graphClient.Users.GetAsync(config =>
+    {
+        // Advanced query requires ConsistencyLevel
+        config.Headers.Add("ConsistencyLevel", "eventual");
+        
+        config.QueryParameters.Search = $"\"displayName:{searchTerm}\"";
+        config.QueryParameters.Count = true;
+        config.QueryParameters.Top = pageSize;
+        config.QueryParameters.Select = new[] 
+        { 
+            "id", 
+            "displayName", 
+            "mail", 
+            "userPrincipalName" 
+        };
+    });
+}
+```
+
+## Troubleshooting
+
+### Header Not Applied
+
+```csharp
+// Issue: Header not being sent
+var user = await graphClient.Me.GetAsync();
+user.Headers.Add("Prefer", "return=minimal"); // Wrong - too late
+
+// Solution: Add headers in request configuration
+var user = await graphClient.Me.GetAsync(config =>
+{
+    config.Headers.Add("Prefer", "return=minimal"); // Correct
+});
+```
+
+### Duplicate Header Error
+
+```csharp
+// Issue: Adding header that SDK already includes
+config.Headers.Add("Authorization", "Bearer token"); // Error - SDK adds this
+
+// Solution: Let SDK handle authentication headers
+// Only add custom headers not managed by SDK
+```
+
+### ETag Format Issues
+
+```csharp
+// Issue: Incorrect ETag format
+config.Headers.Add("If-Match", etag); // May fail if not quoted
+
+// Solution: Ensure ETag is properly formatted
+var properETag = etag.StartsWith("\"") ? etag : $"\"{etag}\"";
+config.Headers.Add("If-Match", properETag);
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Error Handling" icon="triangle-exclamation" href="/core-concepts/error-handling">
+    Handle errors related to headers and conditional requests
+  </Card>
+  
+  <Card title="Query Parameters" icon="filter" href="/core-concepts/query-parameters">
+    Combine headers with query parameters
+  </Card>
+  
+  <Card title="Throttling" icon="gauge-high" href="/guides/throttling">
+    Handle Retry-After headers for throttling
+  </Card>
+  
+  <Card title="Batch Requests" icon="layer-group" href="/guides/batch-requests">
+    Use headers in batch operations
+  </Card>
+</CardGroup>
+
+## Additional Resources
+
+- [Microsoft Graph Best Practices](https://learn.microsoft.com/graph/best-practices-concept)
+- [Working with HTTP headers](https://learn.microsoft.com/graph/http-headers)
+- [Optimistic concurrency in Microsoft Graph](https://learn.microsoft.com/graph/concepts/delta-query-overview#etag-support)
+- [Advanced query capabilities](https://learn.microsoft.com/graph/aad-advanced-queries)

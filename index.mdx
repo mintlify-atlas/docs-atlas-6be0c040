@@ -1,97 +1,158 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Microsoft Graph .NET SDK"
+description: "Integrate Office 365, Azure AD, and Microsoft services through a unified developer experience"
 ---
 
-## Setting up
+<div style={{
+  background: 'linear-gradient(135deg, #F3F6FA 0%, #d9e4f5 100%)',
+  borderRadius: '12px',
+  padding: '48px 32px',
+  marginBottom: '32px',
+  border: '1px solid #d9e6f2'
+}}>
+  <h1 style={{
+    fontSize: '48px',
+    fontWeight: '700',
+    color: '#1B1B1B',
+    marginBottom: '16px',
+    fontFamily: 'Segoe UI, system-ui, sans-serif'
+  }}>
+    Microsoft Graph .NET SDK
+  </h1>
+  <p style={{
+    fontSize: '20px',
+    color: '#646464',
+    marginBottom: '24px',
+    fontFamily: 'Segoe UI, system-ui, sans-serif'
+  }}>
+    Build powerful integrations with Office 365, Azure AD, OneDrive, Teams, and more through the unified Microsoft Graph API.
+  </p>
+  <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+    <a href="/quickstart" style={{
+      background: '#004578',
+      color: '#ffffff',
+      padding: '12px 24px',
+      borderRadius: '16px',
+      textDecoration: 'none',
+      fontWeight: '600',
+      display: 'inline-block',
+      fontFamily: 'Segoe UI, system-ui, sans-serif'
+    }}>
+      Get Started
+    </a>
+    <a href="https://github.com/microsoftgraph/msgraph-sdk-dotnet" style={{
+      background: '#d9e4f5',
+      color: '#004578',
+      padding: '12px 24px',
+      borderRadius: '16px',
+      textDecoration: 'none',
+      fontWeight: '600',
+      display: 'inline-block',
+      fontFamily: 'Segoe UI, system-ui, sans-serif'
+    }}>
+      View on GitHub
+    </a>
+  </div>
+</div>
 
-Get your documentation site up and running in minutes.
+## Why Microsoft Graph .NET SDK?
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Unified API Access" icon="link">
+    Access Office 365, Azure AD, OneDrive, Teams, SharePoint, and more through a single unified API
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Modern .NET Support" icon="code">
+    Built with Kiota code generation targeting .NET Standard 2.0, 2.1, and .NET 5+
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Fluent Request Builders" icon="layer-group">
+    Intuitive request builder pattern that mirrors Microsoft Graph REST API structure
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Azure Identity Integration" icon="shield-check">
+    Seamless authentication using TokenCredential from Azure.Identity library
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Quick Start
 
-Everything you need to create world-class documentation.
+Get up and running in minutes with the Microsoft Graph .NET SDK.
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+<Steps>
+  <Step title="Install the package">
+    ```bash
+    dotnet add package Microsoft.Graph
+    ```
+  </Step>
+  <Step title="Create a client">
+    ```csharp
+    using Azure.Identity;
+    using Microsoft.Graph;
 
-## Need inspiration?
+    var credential = new InteractiveBrowserCredential();
+    var graphClient = new GraphServiceClient(credential);
+    ```
+  </Step>
+  <Step title="Make your first call">
+    ```csharp
+    var user = await graphClient.Me.GetAsync();
+    Console.WriteLine($"Hello, {user.DisplayName}!");
+    ```
+  </Step>
+</Steps>
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+## Key Features
+
+<CardGroup cols={3}>
+  <Card title="User Management" icon="users" href="/api-reference/users">
+    Manage users, profiles, and directory information
+  </Card>
+  <Card title="Mail & Calendar" icon="envelope" href="/api-reference/messages">
+    Send emails and manage calendar events
+  </Card>
+  <Card title="File Operations" icon="folder" href="/api-reference/drives">
+    Access OneDrive and SharePoint files
+  </Card>
+  <Card title="Teams Integration" icon="comments" href="/api-reference/teams">
+    Integrate with Microsoft Teams
+  </Card>
+  <Card title="Groups" icon="people-group" href="/api-reference/groups">
+    Manage groups and memberships
+  </Card>
+  <Card title="Identity & Access" icon="key" href="/api-reference/applications">
+    Manage applications and service principals
+  </Card>
+</CardGroup>
+
+## Core Concepts
+
+Learn the fundamental concepts of working with the Microsoft Graph .NET SDK.
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock" href="/core-concepts/authentication">
+    Configure authentication with Azure.Identity and TokenCredential
+  </Card>
+  <Card title="Request Builders" icon="sitemap" href="/core-concepts/request-builders">
+    Build requests using the fluent request builder pattern
+  </Card>
+  <Card title="Query Parameters" icon="filter" href="/core-concepts/query-parameters">
+    Filter, select, expand, and order your data with OData queries
+  </Card>
+  <Card title="Error Handling" icon="triangle-exclamation" href="/core-concepts/error-handling">
+    Handle exceptions and errors gracefully
+  </Card>
+</CardGroup>
+
+## Migration Guides
+
+Upgrading from an earlier version? We've got you covered.
+
+<CardGroup cols={3}>
+  <Card title="Upgrade to v5" icon="arrow-up" href="/migration/upgrade-to-v5">
+    Migration guide for v5 with Kiota generation
+  </Card>
+  <Card title="Upgrade to v4" icon="arrow-up" href="/migration/upgrade-to-v4">
+    Migration guide for v4 changes
+  </Card>
+  <Card title="From v1" icon="arrow-up" href="/migration/from-v1">
+    Upgrade from v1.x versions
+  </Card>
+</CardGroup>

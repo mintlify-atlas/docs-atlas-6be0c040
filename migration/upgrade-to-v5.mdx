@@ -1,0 +1,611 @@
+---
+title: Upgrade to v5
+description: Complete guide for migrating from Microsoft Graph .NET SDK v4 to v5, including breaking changes, code examples, and new features
+---
+
+# Upgrade to v5
+
+This guide outlines the breaking changes and migration steps required when upgrading from v4 to v5 of the Microsoft Graph .NET SDK.
+
+## Overview
+
+Version 5 of the Microsoft Graph .NET SDK moves to the new code generator [Kiota](https://github.com/microsoft/kiota) to provide a better developer experience and a number of new features made possible by these changes.
+
+<Warning>
+  This is a major version upgrade with significant breaking changes. Review all sections carefully before upgrading.
+</Warning>
+
+## Breaking Changes
+
+### Namespace Changes
+
+The types in the SDK are now organized into namespaces reflecting their usage, making it easier to consume multiple libraries (e.g., v1.0 and beta) in the same application.
+
+**Key changes:**
+- The v1.0 service library uses `Microsoft.Graph` as its root namespace
+- The beta service library uses `Microsoft.Graph.Beta` as its root namespace
+- Model types are now in the `Microsoft.Graph.Models` or `Microsoft.Graph.Beta.Models` namespaces
+- RequestBuilder and RequestBody types reside in namespaces relative to their path
+
+**Example:**
+```csharp
+// v4
+using Microsoft.Graph;
+
+// v5
+using Microsoft.Graph;
+using Microsoft.Graph.Models;
+using Microsoft.Graph.Me.SendMail; // For SendMailPostRequestBody
+```
+
+### Removal of Request() from Fluent API
+
+<Warning>
+  The `Request()` method has been removed from the fluent API.
+</Warning>
+
+**Before (v4):**
+```csharp
+var user = await graphServiceClient
+    .Me
+    .Request()  // This is removed in v5
+    .GetAsync();
+```
+
+**After (v5):**
+```csharp
+var user = await graphServiceClient
+    .Me
+    .GetAsync();
+```
+
+### Request Executor Methods
+
+Method names now reflect HTTP verbs more accurately:
+
+- `UpdateAsync()` is now `PatchAsync()`
+- `AddAsync()` is now `PostAsync()`
+
+**Before (v4):**
+```csharp
+await graphServiceClient.Users[userId].UpdateAsync(user);
+await graphServiceClient.Groups.AddAsync(group);
+```
+
+**After (v5):**
+```csharp
+await graphServiceClient.Users[userId].PatchAsync(user);
+await graphServiceClient.Groups.PostAsync(group);
+```
+
+### Authentication
+
+The `GraphServiceClient` constructor continues to accept `TokenCredential` instances from Azure.Identity:
+
+```csharp
+var interactiveBrowserCredential = new InteractiveBrowserCredential(interactiveBrowserCredentialOptions);
+var graphServiceClient = new GraphServiceClient(interactiveBrowserCredential);
+```
+
+**Custom authentication flows:**
+
+Instead of `DelegateAuthenticationProvider`, create an implementation of `IAccessTokenProvider` and use it with `BaseBearerTokenAuthenticationProvider`:
+
+```csharp
+public class TokenProvider : IAccessTokenProvider
+{
+    public Task<string> GetAuthorizationTokenAsync(Uri uri, Dictionary<string, object> additionalAuthenticationContext = default,
+        CancellationToken cancellationToken = default)
+    {
+        var token = "token";
+        // Get the token and return it in your own way
+        return Task.FromResult(token);
+    }
+
+    public AllowedHostsValidator AllowedHostsValidator { get; }
+}
+
+// Create the GraphServiceClient
+var authenticationProvider = new BaseBearerTokenAuthenticationProvider(new TokenProvider());
+var graphServiceClient = new GraphServiceClient(authenticationProvider);
+```
+
+<Note>
+  Authentication is no longer handled in the HttpClient middleware pipeline. Using `GraphServiceClient(httpClient)` assumes the HttpClient is already configured for authentication.
+</Note>
+
+### Headers
+
+The `HeaderOption` class is no longer used. Headers are now added using the `requestConfiguration` modifier:
+
+**Before (v4):**
+```csharp
+var options = new List<HeaderOption>
+{
+    new HeaderOption("ConsistencyLevel", "eventual")
+};
+var user = await graphServiceClient
+    .Users[userId]
+    .Request(options)
+    .GetAsync();
+```
+
+**After (v5):**
+```csharp
+var user = await graphServiceClient
+    .Users[userId]
+    .GetAsync(requestConfiguration => 
+        requestConfiguration.Headers.Add("ConsistencyLevel", "eventual"));
+```
+
+### Query Parameters
+
+The `QueryOption` class is no longer used. Query options are set using the `requestConfiguration` modifier:
+
+**Before (v4):**
+```csharp
+var options = new List<QueryOption>
+{
+    new QueryOption("$select", "id,createdDateTime")
+};
+var user = await graphServiceClient
+    .Users[userId]
+    .Request(options)
+    .GetAsync();
+```
+
+**After (v5):**
+```csharp
+var user = await graphServiceClient
+    .Users[userId]
+    .GetAsync(requestConfiguration => 
+        requestConfiguration.QueryParameters.Select = new string[] { "id", "createdDateTime" });
+```
+
+**Multiple parameters:**
+```csharp
+var groups = await graphServiceClient
+    .Groups
+    .GetAsync(requestConfiguration =>
+    {
+        requestConfiguration.QueryParameters.Select = new string[] { "id", "createdDateTime", "displayName" };
+        requestConfiguration.QueryParameters.Expand = new string[] { "members" };
+        requestConfiguration.QueryParameters.Filter = "startswith(displayName, 'J')";
+    });
+```
+
+### Query Parameter Values
+
+<Warning>
+  Standard query parameters now use the OData standard with the `$` prefix. Verify your query parameters before running code.
+</Warning>
+
+**Valid examples:**
+```csharp
+// Valid: Quotes are escaped
+var sites = await graphServiceClient
+    .Sites
+    .GetAsync(requestConfiguration =>
+    {
+        requestConfiguration.QueryParameters.Search = "\"a1\"";
+    });
+
+// Valid: Select all on the id property
+var allSites = await graphServiceClient
+    .Sites
+    .GetAsync(requestConfiguration =>
+    {
+        requestConfiguration.QueryParameters.Search = "\"id=*\"";
+    });
+```
+
+**Invalid examples:**
+```csharp
+// Invalid: Numbers not accepted without quotes in $search
+var sites = await graphServiceClient
+    .Sites
+    .GetAsync(requestConfiguration =>
+    {
+        requestConfiguration.QueryParameters.Search = "a1"; // Returns OData exception
+    });
+
+// Invalid: $search="*" returns empty array
+var allSites = await graphServiceClient
+    .Sites
+    .GetAsync(requestConfiguration =>
+    {
+        requestConfiguration.QueryParameters.Search = "\"*\"";
+    });
+```
+
+<Note>
+  Verify your query parameters in [Microsoft Graph Explorer](https://developer.microsoft.com/en-us/graph/graph-explorer) before running your code. Ensure special characters are either escaped or URL encoded.
+</Note>
+
+### Per-Request Options
+
+To pass per-request options to the default HTTP middleware, add an `IRequestOption` instance to the `Options` collection:
+
+```csharp
+var retryHandlerOption = new RetryHandlerOption
+{
+    MaxRetry = 7,
+    ShouldRetry = (delay, attempt, message) => true
+};
+var user = await graphClient.Me.GetAsync(requestConfiguration => 
+    requestConfiguration.Options.Add(retryHandlerOption));
+```
+
+**Available options:**
+- `RetryHandlerOption` - Configure retry handler
+- `RedirectHandlerOption` - Configure redirect handler
+- `ChaosHandlerOption` - Configure chaos handler for testing
+
+### Native Response Object
+
+Use `ResponseHandlerOption` to obtain the native `HttpResponseMessage`:
+
+```csharp
+var nativeResponseHandler = new NativeResponseHandler();
+await graphClient.Me.GetAsync(requestConfiguration => 
+    requestConfiguration.Options.Add(new ResponseHandlerOption() 
+    { 
+        ResponseHandler = nativeResponseHandler 
+    }));
+
+var responseMessage = nativeResponseHandler.Value as HttpResponseMessage;
+```
+
+### Collections
+
+Collection queries now resemble the API response structure:
+
+**Before (v4):**
+```csharp
+var users = await graphServiceClient
+    .Users
+    .Request()
+    .Select("id,createdDateTime")
+    .GetAsync();
+
+var userList = users.CurrentPage.ToList();
+```
+
+**After (v5):**
+```csharp
+var usersResponse = await graphServiceClient
+    .Users
+    .GetAsync(requestConfiguration => 
+        requestConfiguration.QueryParameters.Select = new string[] { "id", "createdDateTime" });
+
+List<User> userList = usersResponse.Value;
+```
+
+### PageIterator
+
+The PageIterator syntax has changed:
+
+**Before (v4):**
+```csharp
+var users = await graphServiceClient
+    .Users
+    .Request()
+    .Top(1)
+    .Select("id,createdDateTime")
+    .GetAsync();
+
+var pageIterator = PageIterator<User>.CreatePageIterator(
+    graphServiceClient,
+    users,
+    (user) => { userList.Add(user); return true; }
+);
+```
+
+**After (v5):**
+```csharp
+var usersResponse = await graphServiceClient
+    .Users
+    .GetAsync(requestConfiguration => 
+    { 
+        requestConfiguration.QueryParameters.Select = new string[] { "id", "createdDateTime" }; 
+        requestConfiguration.QueryParameters.Top = 1; 
+    });
+
+var userList = new List<User>();
+var pageIterator = PageIterator<User, UserCollectionResponse>.CreatePageIterator(
+    graphServiceClient,
+    usersResponse, 
+    (user) => { userList.Add(user); return true; }
+);
+
+await pageIterator.IterateAsync();
+```
+
+### Delta Requests
+
+<Warning>
+  The `$skipToken` and `$deltaToken` query parameters are not included in the metadata. Use the entire URL returned from delta responses.
+</Warning>
+
+**Using request builders:**
+```csharp
+// Make the first request
+var deltaResponse = await graphClient.Groups.Delta.GetAsync((requestConfiguration) =>
+{
+    requestConfiguration.QueryParameters.Select = new string[] { "displayName", "description", "mailNickname" };
+});
+
+// Use the deltaResponse.OdataDeltaLink/deltaResponse.OdataNextLink to make the next request
+var deltaRequest = new Microsoft.Graph.Beta.Groups.Delta.DeltaRequestBuilder(
+    deltaResponse.OdataDeltaLink, 
+    graphClient.RequestAdapter
+);
+var secondDeltaResponse = await deltaRequest.GetAsync();
+```
+
+**Using PageIterator:**
+```csharp
+// Fetch the first page of groups
+var deltaResponse = await graphClient.Groups.Delta.GetAsync((requestConfiguration) =>
+{
+    requestConfiguration.QueryParameters.Select = new string[] { "displayName", "description", "mailNickname" };
+});
+
+var groups = new List<Group>();
+var pageIterator = PageIterator<Group, Microsoft.Graph.Beta.Groups.Delta.DeltaResponse>.CreatePageIterator(
+    graphClient, 
+    deltaResponse, 
+    group => 
+    {
+        groups.Add(group);
+        return true;
+    }
+);
+
+// Iterate through the odata.nextLink until the last page is reached with an odata.deltaLink
+await pageIterator.IterateAsync();
+
+if (pageIterator.State == PagingState.Delta) 
+{
+    await Task.Delay(30000); // Wait for changes to occur
+    Console.WriteLine("Calling delta again with deltaLink");
+    Console.WriteLine("DeltaLink url is: " + pageIterator.Deltalink);
+    await pageIterator.ResumeAsync();
+}
+```
+
+### Error Handling
+
+Errors are now exception classes derived from `ApiException`, typically `ODataError`:
+
+**Before (v4):**
+```csharp
+try
+{
+    await graphServiceClient.Me.Request().UpdateAsync(user);
+}
+catch (ServiceException ex)
+{
+    Console.WriteLine(ex.Error.Code);
+    Console.WriteLine(ex.Error.Message);
+}
+```
+
+**After (v5):**
+```csharp
+try
+{
+    await graphServiceClient.Me.PatchAsync(user);
+}
+catch (ODataError odataError)
+{
+    Console.WriteLine(odataError.Error.Code);
+    Console.WriteLine(odataError.Error.Message);
+    throw;
+}
+```
+
+### RequestInformation vs IBaseRequest
+
+The `RequestInformation` class replaces `IBaseRequest`:
+
+```csharp
+// Get the requestInformation to make a GET request
+var requestInformation = graphServiceClient
+    .DirectoryObjects
+    .ToGetRequestInformation();
+
+// Get the requestInformation to make a POST request
+var directoryObject = new DirectoryObject()
+{
+    Id = Guid.NewGuid().ToString()
+};
+var requestInformation = graphServiceClient
+    .DirectoryObjects
+    .ToPostRequestInformation(directoryObject);
+```
+
+### Drive Item Paths
+
+The CSDL to OpenAPI conversion process avoids generating redundant paths. Use alternative paths as documented in the reference documentation.
+
+**List children from a user's drive:**
+```csharp
+// Get the user's driveId
+var driveItem = await graphServiceClient.Me.Drive.GetAsync();
+var userDriveId = driveItem.Id;
+
+// List children in the drive
+var children = await graphServiceClient.Drives[userDriveId].Items["itemId"].Children.GetAsync();
+
+// List children in the root drive (root is a shorthand for /drive/items/root)
+var children = await graphServiceClient.Drives[userDriveId].Items["root"].Children.GetAsync();
+```
+
+**Upload small file with conflictBehavior:**
+```csharp
+var requestInformation = graphClient.Drives[drive.Id.ToString()].Root
+    .ItemWithPath("MediaMeta.xml").Content.ToPutRequestInformation(file);
+requestInformation.URI = new Uri(requestInformation.URI.OriginalString + 
+    "?@microsoft.graph.conflictBehavior=rename");
+
+var result = await graphClient.RequestAdapter.SendAsync<DriveItem>(
+    requestInformation, 
+    DriveItem.CreateFromDiscriminatorValue
+);
+```
+
+## New Features
+
+### Backing Store
+
+The backing store enables dirty tracking of changes, allowing you to update only modified properties:
+
+```csharp
+// Get the object
+var @event = await graphServiceClient
+    .Me.Events["event-id"]
+    .GetAsync();
+
+// The backing store tracks the property change
+@event.Recurrence = null; // Set to null
+
+// Update the object (only sends changed properties)
+await graphServiceClient.Me.Events["event-id"]
+    .PatchAsync(@event);
+```
+
+<Note>
+  This eliminates the need to place null values in the additionalData bag.
+</Note>
+
+### Parameter Objects for OData Functions/Actions
+
+The SDK now uses parameter objects instead of function overloads:
+
+**Before (v4):**
+```csharp
+await graphClient.Me
+    .SendMail(message, saveToSentItems)
+    .Request()
+    .PostAsync();
+```
+
+**After (v5):**
+```csharp
+var body = new Microsoft.Graph.Me.SendMail.SendMailPostRequestBody
+{
+    Message = message,
+    SaveToSentItems = saveToSentItems
+};
+
+await graphServiceClient.Me
+    .SendMail
+    .PostAsync(body);
+```
+
+### Batch Requests
+
+Batch requests now support passing `RequestInformation` instances:
+
+```csharp
+var requestInformation = graphServiceClient
+    .Users
+    .ToGetRequestInformation();
+
+// Create the batch request
+var batchRequestContent = new BatchRequestContent(graphServiceClient);
+// Add one or more steps (up to 20)
+var requestStepId = await batchRequestContent.AddBatchRequestStepAsync(requestInformation);
+
+// Send and get back response
+var batchResponseContent = await graphServiceClient.Batch.PostAsync(batchRequestContent);
+
+var usersResponse = await batchResponseContent.GetResponseByIdAsync<UserCollectionResponse>(requestStepId);
+List<User> userList = usersResponse.Value;
+```
+
+**Handle failed responses:**
+```csharp
+var statusCodes = await batchResponseContent.GetResponsesStatusCodesAsync();
+// Check if all responses are successful
+var allResponsesSuccessful = statusCodes.Any(x => !BatchResponseContent.IsSuccessStatusCode(x.Value));
+// Get rate limited responses
+var rateLimitedResponses = statusCodes.Where(x => x.Value == (HttpStatusCode)429);
+// Retry those rate limited
+var retryBatch = batchRequestContent.NewBatchWithFailedRequests(rateLimitedResponses);
+var retryResponse = await graphServiceClient.Batch.PostAsync(retryBatch);
+```
+
+**Automatic batch size management:**
+```csharp
+// Replace BatchRequestContent with BatchRequestContentCollection
+var batchRequestContent = new BatchRequestContentCollection(graphServiceClient);
+
+// Or with a set batch size
+var batchRequestContent = new BatchRequestContentCollection(graphServiceClient, 4);
+
+// Add "unlimited" requests (don't use "DependsOn")
+var requestStepId = await batchRequestContent.AddBatchRequestStepAsync(requestInformation);
+```
+
+<Note>
+  Using batched requests can significantly improve performance when querying multiple endpoints or creating/deleting many items.
+</Note>
+
+### $count Support
+
+Request builders now have built-in `Count` sections:
+
+**Before (v4):**
+```csharp
+string requestUrl = graphClient.Users.AppendSegmentToRequestUrl("$count");
+Option[] options = new Option[] { new HeaderOption("ConsistencyLevel", "eventual") };
+HttpResponseMessage responseMessage = await new UserRequest(requestUrl, graphClient, options)
+    .SendRequestAsync(null, CancellationToken.None);
+string userCount = await responseMessage.Content.ReadAsStringAsync();
+```
+
+**After (v5):**
+```csharp
+var count = await graphServiceClient.Users.Count.GetAsync(requestConfiguration => 
+    requestConfiguration.Headers.Add("ConsistencyLevel", "eventual"));
+```
+
+### OData Casts
+
+Request builders now support OData cast functionality:
+
+```csharp
+// Fetch members of a group who are of type User
+var usersInGroup = await graphServiceClient.Groups["group-id"].Members.GraphUser.GetAsync();
+
+// Fetch members of the group of type Application
+var applicationsInGroup = await graphServiceClient.Groups["group-id"].Members.GraphApplication.GetAsync();
+```
+
+## Migration Checklist
+
+<Card title="Step-by-Step Migration" icon="list-check">
+  1. Update your package reference to v5
+  2. Add namespace imports for `Microsoft.Graph.Models`
+  3. Remove all `.Request()` calls from your code
+  4. Replace `UpdateAsync()` with `PatchAsync()`
+  5. Replace `AddAsync()` with `PostAsync()`
+  6. Update header and query parameter usage to use `requestConfiguration`
+  7. Update error handling to catch `ODataError` instead of `ServiceException`
+  8. Update collection handling to use `.Value` property
+  9. Update PageIterator usage with new syntax
+  10. Test your application thoroughly
+</Card>
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="Kiota Documentation" icon="book" href="https://github.com/microsoft/kiota">
+    Learn more about the Kiota code generator
+  </Card>
+  <Card title="Graph Explorer" icon="browser" href="https://developer.microsoft.com/en-us/graph/graph-explorer">
+    Test your query parameters before implementation
+  </Card>
+</CardGroup>

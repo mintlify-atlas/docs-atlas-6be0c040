@@ -1,0 +1,694 @@
+---
+title: Query Parameters
+description: Learn how to use OData query parameters to filter, sort, and customize Microsoft Graph API requests
+icon: filter
+---
+
+Query parameters allow you to customize API requests by filtering, selecting specific properties, sorting results, and controlling pagination. The SDK provides strongly-typed access to OData query parameters.
+
+## Overview
+
+Microsoft Graph API supports OData query parameters that let you:
+
+- **$select** - Choose which properties to return
+- **$filter** - Filter results based on criteria
+- **$orderby** - Sort results
+- **$expand** - Include related resources
+- **$top** - Limit the number of results
+- **$skip** - Skip a number of results (pagination)
+- **$count** - Include result count
+- **$search** - Perform full-text search
+
+<Note>
+  Not all query parameters are supported on every endpoint. Check the [Microsoft Graph API documentation](https://learn.microsoft.com/graph/api/overview) for specific endpoint capabilities.
+</Note>
+
+## $select - Choosing Properties
+
+Use `$select` to return only the properties you need, reducing payload size and improving performance.
+
+### Basic Selection
+
+```csharp
+// Get only ID and display name
+var user = await graphClient.Me.GetAsync(config =>
+{
+    config.QueryParameters.Select = new[] { "id", "displayName" };
+});
+
+Console.WriteLine($"ID: {user.Id}");
+Console.WriteLine($"Name: {user.DisplayName}");
+Console.WriteLine($"Mail: {user.Mail}"); // null - not selected
+```
+
+**Maps to REST API**:
+```http
+GET https://graph.microsoft.com/v1.0/me?$select=id,displayName
+```
+
+### Multiple Properties
+
+```csharp
+// Select multiple user properties
+var users = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Select = new[] 
+    { 
+        "id",
+        "displayName",
+        "mail",
+        "jobTitle",
+        "department",
+        "officeLocation"
+    };
+});
+
+foreach (var user in users.Value)
+{
+    Console.WriteLine($"{user.DisplayName} - {user.JobTitle}");
+}
+```
+
+<Tip>
+  Always use `$select` to request only the properties you need. This reduces network traffic and improves API performance.
+</Tip>
+
+## $filter - Filtering Results
+
+Use `$filter` to retrieve only items that match specific criteria.
+
+### Equality Filters
+
+```csharp
+// Filter users by department
+var engineers = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "department eq 'Engineering'";
+});
+
+// Filter by boolean property
+var enabledUsers = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "accountEnabled eq true";
+});
+
+// Filter messages by read status
+var unreadMessages = await graphClient.Me.Messages.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "isRead eq false";
+});
+```
+
+### Comparison Operators
+
+```csharp
+// Not equal
+var notInEngineering = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "department ne 'Engineering'";
+});
+
+// Greater than
+var recentMessages = await graphClient.Me.Messages.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "receivedDateTime gt 2024-01-01T00:00:00Z";
+});
+
+// Less than or equal
+var oldMessages = await graphClient.Me.Messages.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "receivedDateTime le 2023-12-31T23:59:59Z";
+});
+```
+
+### Logical Operators
+
+```csharp
+// AND operator
+var filteredUsers = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Filter = 
+        "department eq 'Engineering' and accountEnabled eq true";
+});
+
+// OR operator
+var deptUsers = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Filter = 
+        "department eq 'Engineering' or department eq 'Sales'";
+});
+
+// NOT operator
+var nonEngineers = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "not (department eq 'Engineering')";
+});
+
+// Complex expressions with parentheses
+var complexFilter = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Filter = 
+        "(department eq 'Engineering' or department eq 'Sales') and accountEnabled eq true";
+});
+```
+
+### String Functions
+
+```csharp
+// startsWith
+var usersStartingWithA = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "startsWith(displayName, 'A')";
+});
+
+// endsWith
+var usersEndingWithSon = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "endsWith(surname, 'son')";
+});
+
+// contains (requires ConsistencyLevel header)
+var usersContainingJohn = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "contains(displayName, 'John')";
+    config.Headers.Add("ConsistencyLevel", "eventual");
+});
+```
+
+<Warning>
+  Some filter functions like `contains` require the `ConsistencyLevel: eventual` header and may have performance implications.
+</Warning>
+
+## $orderby - Sorting Results
+
+Use `$orderby` to sort results by one or more properties.
+
+### Single Property Sort
+
+```csharp
+// Sort users by display name (ascending)
+var users = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Orderby = new[] { "displayName" };
+});
+
+// Sort descending
+var usersDesc = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Orderby = new[] { "displayName desc" };
+});
+
+// Sort messages by received date (newest first)
+var messages = await graphClient.Me.Messages.GetAsync(config =>
+{
+    config.QueryParameters.Orderby = new[] { "receivedDateTime desc" };
+});
+```
+
+### Multiple Property Sort
+
+```csharp
+// Sort by department, then by display name
+var users = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Orderby = new[] { "department", "displayName" };
+});
+
+// Mixed ascending and descending
+var messages = await graphClient.Me.Messages.GetAsync(config =>
+{
+    config.QueryParameters.Orderby = new[] 
+    { 
+        "importance desc",    // High importance first
+        "receivedDateTime desc" // Then newest first
+    };
+});
+```
+
+## $expand - Including Related Resources
+
+Use `$expand` to include related resources in the response.
+
+### Basic Expansion
+
+```csharp
+// Get user with manager details
+var user = await graphClient.Me.GetAsync(config =>
+{
+    config.QueryParameters.Expand = new[] { "manager" };
+});
+
+// Access expanded manager
+if (user.Manager is Microsoft.Graph.Models.User manager)
+{
+    Console.WriteLine($"Manager: {manager.DisplayName}");
+}
+```
+
+From collections.md:50-55:
+```csharp
+// Expand collection items
+var children = await graphClient
+    .Drive
+    .Items["itemId"]
+    .Children
+    .GetAsync(config => 
+        config.QueryParameters.Expand = new[] { "thumbnails" });
+```
+
+### Multiple Expansions
+
+```csharp
+// Expand multiple relationships
+var message = await graphClient.Me.Messages["id"].GetAsync(config =>
+{
+    config.QueryParameters.Expand = new[] 
+    { 
+        "attachments",
+        "singleValueExtendedProperties"
+    };
+});
+
+foreach (var attachment in message.Attachments)
+{
+    Console.WriteLine($"Attachment: {attachment.Name}");
+}
+```
+
+### Nested Expansion
+
+```csharp
+// Expand and select properties on expanded entity
+var user = await graphClient.Me.GetAsync(config =>
+{
+    config.QueryParameters.Expand = new[] { "manager($select=displayName,mail)" };
+});
+```
+
+<Note>
+  Expansion depth is typically limited to avoid performance issues. Check the specific endpoint documentation for limits.
+</Note>
+
+## $top - Limiting Results
+
+Use `$top` to limit the number of items returned.
+
+```csharp
+// Get top 10 users
+var users = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Top = 10;
+});
+
+// Get top 5 most recent messages
+var messages = await graphClient.Me.Messages.GetAsync(config =>
+{
+    config.QueryParameters.Top = 5;
+    config.QueryParameters.Orderby = new[] { "receivedDateTime desc" };
+});
+
+// Maximum allowed varies by endpoint (often 999)
+var maxUsers = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Top = 999;
+});
+```
+
+**Maps to REST API**:
+```http
+GET https://graph.microsoft.com/v1.0/users?$top=10
+```
+
+## $skip - Pagination
+
+Use `$skip` to skip a number of results for pagination.
+
+```csharp
+// Skip first 20 users, get next 10
+var users = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Skip = 20;
+    config.QueryParameters.Top = 10;
+});
+
+// Manual pagination
+int pageSize = 10;
+int pageNumber = 3; // Zero-based: page 3 = skip 30
+
+var page = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Skip = pageNumber * pageSize;
+    config.QueryParameters.Top = pageSize;
+});
+```
+
+<Warning>
+  Using `$skip` with large values can have performance implications. For efficient pagination, use `$skipToken` from the `@odata.nextLink` property instead.
+</Warning>
+
+## $count - Including Count
+
+Use `$count` to include the total count of matching items.
+
+```csharp
+// Get users with count
+var users = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Count = true;
+});
+
+Console.WriteLine($"Total users: {users.OdataCount}");
+Console.WriteLine($"Returned: {users.Value.Count}");
+
+// Count with filter
+var engineers = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "department eq 'Engineering'";
+    config.QueryParameters.Count = true;
+});
+
+Console.WriteLine($"Total engineers: {engineers.OdataCount}");
+```
+
+<Note>
+  For some queries, you may need to add the `ConsistencyLevel: eventual` header to use `$count`.
+</Note>
+
+## $search - Full-Text Search
+
+Use `$search` for full-text search queries.
+
+```csharp
+// Search users by display name
+var users = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Search = "\"displayName:John\"";
+    config.Headers.Add("ConsistencyLevel", "eventual");
+});
+
+// Search messages
+var messages = await graphClient.Me.Messages.GetAsync(config =>
+{
+    config.QueryParameters.Search = "\"subject:meeting\"";
+});
+
+// Complex search with OR
+var searchResults = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Search = "\"displayName:John\" OR \"displayName:Jane\"";
+    config.Headers.Add("ConsistencyLevel", "eventual");
+});
+```
+
+<Warning>
+  `$search` requires the `ConsistencyLevel: eventual` header for most resources and may not be available on all endpoints.
+</Warning>
+
+## Combining Query Parameters
+
+Combine multiple query parameters for powerful queries:
+
+```csharp
+// Complex query combining multiple parameters
+var users = await graphClient.Users.GetAsync(config =>
+{
+    // Select specific properties
+    config.QueryParameters.Select = new[] 
+    { 
+        "id", 
+        "displayName", 
+        "mail", 
+        "department" 
+    };
+    
+    // Filter by department and status
+    config.QueryParameters.Filter = 
+        "department eq 'Engineering' and accountEnabled eq true";
+    
+    // Sort by display name
+    config.QueryParameters.Orderby = new[] { "displayName" };
+    
+    // Limit results
+    config.QueryParameters.Top = 25;
+    
+    // Include total count
+    config.QueryParameters.Count = true;
+    
+    // Expand manager relationship
+    config.QueryParameters.Expand = new[] { "manager($select=displayName)" };
+});
+
+Console.WriteLine($"Found {users.OdataCount} engineers");
+Console.WriteLine($"Returning {users.Value.Count} results");
+
+foreach (var user in users.Value)
+{
+    Console.WriteLine($"{user.DisplayName} ({user.Mail})");
+    
+    if (user.Manager is Microsoft.Graph.Models.User manager)
+    {
+        Console.WriteLine($"  Manager: {manager.DisplayName}");
+    }
+}
+```
+
+**Maps to REST API**:
+```http
+GET https://graph.microsoft.com/v1.0/users
+  ?$select=id,displayName,mail,department
+  &$filter=department eq 'Engineering' and accountEnabled eq true
+  &$orderby=displayName
+  &$top=25
+  &$count=true
+  &$expand=manager($select=displayName)
+```
+
+## Advanced Scenarios
+
+### Case-Insensitive Filtering
+
+```csharp
+// Use tolower() for case-insensitive comparison
+var users = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "tolower(department) eq 'engineering'";
+});
+```
+
+### Date Range Filtering
+
+```csharp
+// Messages from last 7 days
+var lastWeek = DateTime.UtcNow.AddDays(-7).ToString("yyyy-MM-ddTHH:mm:ssZ");
+
+var recentMessages = await graphClient.Me.Messages.GetAsync(config =>
+{
+    config.QueryParameters.Filter = $"receivedDateTime ge {lastWeek}";
+    config.QueryParameters.Orderby = new[] { "receivedDateTime desc" };
+});
+```
+
+### Null Value Checks
+
+```csharp
+// Users without a job title
+var noJobTitle = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "jobTitle eq null";
+});
+
+// Users with a job title
+var hasJobTitle = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "jobTitle ne null";
+});
+```
+
+### Collection Filtering
+
+```csharp
+// Filter by property in collection (any/all lambda operators)
+var users = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Filter = 
+        "assignedLicenses/any(x:x/skuId eq 'sku-id')";
+    config.Headers.Add("ConsistencyLevel", "eventual");
+});
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always use $select for production code">
+    Selecting only needed properties improves performance and reduces costs:
+    
+    ```csharp
+    // Good - efficient
+    var user = await graphClient.Me.GetAsync(config =>
+        config.QueryParameters.Select = new[] { "displayName", "mail" });
+    
+    // Avoid - gets all properties
+    var user = await graphClient.Me.GetAsync();
+    ```
+  </Accordion>
+  
+  <Accordion title="Use $filter instead of client-side filtering">
+    Filter on the server to reduce data transfer:
+    
+    ```csharp
+    // Good - server-side filtering
+    var engineers = await graphClient.Users.GetAsync(config =>
+        config.QueryParameters.Filter = "department eq 'Engineering'");
+    
+    // Bad - transfers all users then filters
+    var allUsers = await graphClient.Users.GetAsync();
+    var engineers = allUsers.Value.Where(u => u.Department == "Engineering");
+    ```
+  </Accordion>
+  
+  <Accordion title="Combine $filter and $select">
+    Get exactly what you need:
+    
+    ```csharp
+    var users = await graphClient.Users.GetAsync(config =>
+    {
+        config.QueryParameters.Filter = "department eq 'Engineering'";
+        config.QueryParameters.Select = new[] { "displayName", "mail" };
+    });
+    ```
+  </Accordion>
+  
+  <Accordion title="Use $top to limit results">
+    Always limit large queries:
+    
+    ```csharp
+    // Prevents accidentally retrieving thousands of items
+    var users = await graphClient.Users.GetAsync(config =>
+    {
+        config.QueryParameters.Top = 100;
+    });
+    ```
+  </Accordion>
+  
+  <Accordion title="Be aware of query parameter support">
+    Not all parameters work on all endpoints. Check documentation:
+    
+    ```csharp
+    // Some endpoints don't support $filter or $search
+    // Always check the Microsoft Graph API documentation
+    // for the specific endpoint you're using
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Common Query Patterns
+
+### Get Recent Items
+
+```csharp
+var recentMessages = await graphClient.Me.Messages.GetAsync(config =>
+{
+    config.QueryParameters.Top = 10;
+    config.QueryParameters.Orderby = new[] { "receivedDateTime desc" };
+    config.QueryParameters.Select = new[] 
+    { 
+        "subject", 
+        "from", 
+        "receivedDateTime" 
+    };
+});
+```
+
+### Search and Filter
+
+```csharp
+var results = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Search = "\"displayName:John\"";
+    config.QueryParameters.Filter = "accountEnabled eq true";
+    config.QueryParameters.Select = new[] { "displayName", "mail" };
+    config.Headers.Add("ConsistencyLevel", "eventual");
+});
+```
+
+### Paginated Results with Count
+
+```csharp
+var page = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Top = 50;
+    config.QueryParameters.Skip = 100;
+    config.QueryParameters.Count = true;
+    config.QueryParameters.Orderby = new[] { "displayName" };
+});
+
+Console.WriteLine($"Page: {page.Value.Count} of {page.OdataCount} total");
+```
+
+## Troubleshooting
+
+### Filter Not Working
+
+```csharp
+// Error: Filter not supported
+// Cause: Endpoint doesn't support $filter
+
+// Solution: Check API documentation for supported parameters
+// Some endpoints don't support filtering
+```
+
+### Contains Requires ConsistencyLevel
+
+```csharp
+// Error: Advanced query capabilities are not available
+// Cause: Missing ConsistencyLevel header
+
+var users = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "contains(displayName, 'John')";
+    config.Headers.Add("ConsistencyLevel", "eventual"); // Add this
+});
+```
+
+### Property Not Returned
+
+```csharp
+// Issue: Property is null even though it exists
+// Cause: Property not included in $select
+
+var user = await graphClient.Me.GetAsync(config =>
+    config.QueryParameters.Select = new[] { "displayName" });
+
+Console.WriteLine(user.Mail); // null - not selected
+
+// Solution: Include all needed properties in $select
+var user = await graphClient.Me.GetAsync(config =>
+    config.QueryParameters.Select = new[] { "displayName", "mail" });
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Collections" icon="layer-group" href="/core-concepts/collections">
+    Learn about pagination and working with collections
+  </Card>
+  
+  <Card title="Error Handling" icon="triangle-exclamation" href="/core-concepts/error-handling">
+    Handle query errors and exceptions
+  </Card>
+  
+  <Card title="Headers" icon="heading" href="/core-concepts/headers">
+    Work with custom headers like ConsistencyLevel
+  </Card>
+  
+  <Card title="Request Builders" icon="wrench" href="/core-concepts/request-builders">
+    Return to request builders documentation
+  </Card>
+</CardGroup>
+
+## Additional Resources
+
+- [OData Query Parameters](https://learn.microsoft.com/graph/query-parameters)
+- [Advanced Query Capabilities](https://learn.microsoft.com/graph/aad-advanced-queries)
+- [Filter Query Parameter](https://learn.microsoft.com/graph/filter-query-parameter)
+- [Use Query Parameters](https://learn.microsoft.com/graph/use-query-parameters)

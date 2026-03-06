@@ -1,0 +1,673 @@
+---
+title: Request Builders
+description: Learn how to navigate the Microsoft Graph API using strongly-typed request builders
+icon: wrench
+---
+
+Request builders provide a fluent, strongly-typed way to navigate and interact with the Microsoft Graph API. They mirror the REST API structure and enable compile-time checking of API paths and operations.
+
+## Overview
+
+Request builders are auto-generated classes that:
+
+- Represent navigation paths in the Microsoft Graph API
+- Provide strongly-typed access to resources and collections
+- Support method chaining for fluent API construction
+- Offer HTTP operation methods (`GetAsync`, `PostAsync`, `PatchAsync`, `DeleteAsync`)
+- Handle query parameters and request configuration
+
+## Request Builder Hierarchy
+
+The request builder pattern mirrors the REST API structure:
+
+```
+GraphServiceClient (root)
+└── Me (MeRequestBuilder)
+    ├── GetAsync() → GET /me
+    ├── PatchAsync() → PATCH /me
+    ├── Messages (MessagesRequestBuilder)
+    │   ├── GetAsync() → GET /me/messages
+    │   ├── PostAsync() → POST /me/messages
+    │   └── [id] (MessageItemRequestBuilder)
+    │       ├── GetAsync() → GET /me/messages/{id}
+    │       ├── PatchAsync() → PATCH /me/messages/{id}
+    │       └── DeleteAsync() → DELETE /me/messages/{id}
+    └── Calendar (CalendarRequestBuilder)
+        └── GetAsync() → GET /me/calendar
+```
+
+## Basic Usage
+
+### Getting a Resource
+
+Retrieve a single resource using the `GetAsync` method:
+
+```csharp
+// Get current user
+var user = await graphClient.Me.GetAsync();
+
+Console.WriteLine($"Display Name: {user.DisplayName}");
+Console.WriteLine($"Email: {user.Mail}");
+Console.WriteLine($"Job Title: {user.JobTitle}");
+```
+
+**Maps to REST API**:
+```http
+GET https://graph.microsoft.com/v1.0/me
+```
+
+### Getting a Collection
+
+Retrieve collections of resources:
+
+```csharp
+// Get all messages
+var messages = await graphClient.Me.Messages.GetAsync();
+
+foreach (var message in messages.Value)
+{
+    Console.WriteLine($"{message.Subject} - {message.ReceivedDateTime}");
+}
+```
+
+**Maps to REST API**:
+```http
+GET https://graph.microsoft.com/v1.0/me/messages
+```
+
+### Accessing Items by ID
+
+Use indexer syntax to access specific items:
+
+```csharp
+// Get specific user by ID
+var user = await graphClient.Users["user-id"].GetAsync();
+
+// Get specific message by ID
+var message = await graphClient.Me.Messages["message-id"].GetAsync();
+
+// Get specific group by ID
+var group = await graphClient.Groups["group-id"].GetAsync();
+```
+
+**Maps to REST API**:
+```http
+GET https://graph.microsoft.com/v1.0/users/user-id
+GET https://graph.microsoft.com/v1.0/me/messages/message-id
+GET https://graph.microsoft.com/v1.0/groups/group-id
+```
+
+From GroupsRequestBuilder.cs:55-62:
+
+```csharp
+public global::Microsoft.Graph.Groups.Item.GroupItemRequestBuilder this[string position]
+{
+    get
+    {
+        var urlTplParams = new Dictionary<string, object>(PathParameters);
+        urlTplParams.Add("group%2Did", position);
+        return new global::Microsoft.Graph.Groups.Item.GroupItemRequestBuilder(urlTplParams, RequestAdapter);
+    }
+}
+```
+
+### Navigating Relationships
+
+Chain request builders to navigate resource relationships:
+
+```csharp
+// Get user's calendar
+var calendar = await graphClient.Me.Calendar.GetAsync();
+
+// Get user's manager
+var manager = await graphClient.Me.Manager.GetAsync();
+
+// Get group members
+var members = await graphClient.Groups["group-id"].Members.GetAsync();
+
+// Get user's drive items
+var driveItems = await graphClient.Me.Drive.Items.GetAsync();
+```
+
+From MeRequestBuilder.cs:131-135:
+
+```csharp
+public global::Microsoft.Graph.Me.Calendar.CalendarRequestBuilder Calendar
+{
+    get => new global::Microsoft.Graph.Me.Calendar.CalendarRequestBuilder(PathParameters, RequestAdapter);
+}
+```
+
+## HTTP Operations
+
+### GET Requests
+
+Retrieve resources:
+
+```csharp
+// Simple GET
+var user = await graphClient.Me.GetAsync();
+
+// GET with query parameters
+var users = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Select = new[] { "displayName", "mail" };
+    config.QueryParameters.Top = 10;
+});
+
+// GET with headers
+var message = await graphClient.Me.Messages["id"].GetAsync(config =>
+{
+    config.Headers.Add("Prefer", "outlook.body-content-type=\"text\"" );
+});
+```
+
+Method signature from MeRequestBuilder.cs:529:
+
+```csharp
+public async Task<global::Microsoft.Graph.Models.User?> GetAsync(
+    Action<RequestConfiguration<MeRequestBuilderGetQueryParameters>>? requestConfiguration = default,
+    CancellationToken cancellationToken = default
+)
+```
+
+### POST Requests
+
+Create new resources:
+
+```csharp
+using Microsoft.Graph.Models;
+
+// Create a new message
+var newMessage = new Message
+{
+    Subject = "Hello from Graph SDK",
+    Body = new ItemBody
+    {
+        ContentType = BodyType.Text,
+        Content = "This is a test message."
+    },
+    ToRecipients = new List<Recipient>
+    {
+        new Recipient
+        {
+            EmailAddress = new EmailAddress
+            {
+                Address = "user@contoso.com"
+            }
+        }
+    }
+};
+
+var message = await graphClient.Me.Messages.PostAsync(newMessage);
+
+// Create a new group
+var newGroup = new Group
+{
+    DisplayName = "Marketing Team",
+    MailEnabled = false,
+    MailNickname = "marketing",
+    SecurityEnabled = true
+};
+
+var group = await graphClient.Groups.PostAsync(newGroup);
+```
+
+Method signature from GroupsRequestBuilder.cs:115:
+
+```csharp
+public async Task<global::Microsoft.Graph.Models.Group?> PostAsync(
+    global::Microsoft.Graph.Models.Group body,
+    Action<RequestConfiguration<DefaultQueryParameters>>? requestConfiguration = default,
+    CancellationToken cancellationToken = default
+)
+```
+
+### PATCH Requests
+
+Update existing resources:
+
+```csharp
+using Microsoft.Graph.Models;
+
+// Update user properties
+var userUpdate = new User
+{
+    JobTitle = "Senior Developer",
+    Department = "Engineering"
+};
+
+var updatedUser = await graphClient.Me.PatchAsync(userUpdate);
+
+// Update message properties
+var messageUpdate = new Message
+{
+    IsRead = true
+};
+
+var updatedMessage = await graphClient
+    .Me
+    .Messages["message-id"]
+    .PatchAsync(messageUpdate);
+```
+
+Method signature from MeRequestBuilder.cs:554:
+
+```csharp
+public async Task<global::Microsoft.Graph.Models.User?> PatchAsync(
+    global::Microsoft.Graph.Models.User body,
+    Action<RequestConfiguration<DefaultQueryParameters>>? requestConfiguration = default,
+    CancellationToken cancellationToken = default
+)
+```
+
+<Note>
+  PATCH requests only update the properties you specify. Omitted properties remain unchanged.
+</Note>
+
+### DELETE Requests
+
+Remove resources:
+
+```csharp
+// Delete a message
+await graphClient.Me.Messages["message-id"].DeleteAsync();
+
+// Delete a group
+await graphClient.Groups["group-id"].DeleteAsync();
+
+// Delete with confirmation headers
+await graphClient.Me.Messages["message-id"].DeleteAsync(config =>
+{
+    config.Headers.Add("If-Match", etag);
+});
+```
+
+## Request Configuration
+
+### Query Parameters
+
+Configure OData query options:
+
+```csharp
+var users = await graphClient.Users.GetAsync(config =>
+{
+    // Select specific properties
+    config.QueryParameters.Select = new[] { "displayName", "mail", "id" };
+    
+    // Filter results
+    config.QueryParameters.Filter = "startsWith(displayName, 'A')";
+    
+    // Sort results
+    config.QueryParameters.Orderby = new[] { "displayName" };
+    
+    // Limit results
+    config.QueryParameters.Top = 10;
+    
+    // Skip results (pagination)
+    config.QueryParameters.Skip = 20;
+    
+    // Expand related entities
+    config.QueryParameters.Expand = new[] { "manager" };
+    
+    // Include count
+    config.QueryParameters.Count = true;
+    
+    // Search
+    config.QueryParameters.Search = "\"displayName:John\"";
+});
+
+Console.WriteLine($"Total count: {users.OdataCount}");
+```
+
+Query parameters class from GroupsRequestBuilder.cs:184-223:
+
+```csharp
+public partial class GroupsRequestBuilderGetQueryParameters 
+{
+    [QueryParameter("%24count")]
+    public bool? Count { get; set; }
+    
+    [QueryParameter("%24expand")]
+    public string[]? Expand { get; set; }
+    
+    [QueryParameter("%24filter")]
+    public string? Filter { get; set; }
+    
+    [QueryParameter("%24orderby")]
+    public string[]? Orderby { get; set; }
+    
+    [QueryParameter("%24search")]
+    public string? Search { get; set; }
+    
+    [QueryParameter("%24select")]
+    public string[]? Select { get; set; }
+    
+    [QueryParameter("%24skip")]
+    public int? Skip { get; set; }
+    
+    [QueryParameter("%24top")]
+    public int? Top { get; set; }
+}
+```
+
+### Custom Headers
+
+Add custom headers to requests:
+
+```csharp
+var message = await graphClient.Me.Messages["id"].GetAsync(config =>
+{
+    // Prefer specific content type
+    config.Headers.Add("Prefer", "outlook.body-content-type=\"text\"");
+    
+    // Add consistency level for advanced queries
+    config.Headers.Add("ConsistencyLevel", "eventual");
+    
+    // Add conditional headers
+    config.Headers.Add("If-Match", etag);
+    config.Headers.Add("If-None-Match", etag);
+});
+```
+
+### Cancellation Tokens
+
+Support request cancellation:
+
+```csharp
+using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+try
+{
+    var users = await graphClient.Users.GetAsync(
+        requestConfiguration: null,
+        cancellationToken: cts.Token
+    );
+}
+catch (OperationCanceledException)
+{
+    Console.WriteLine("Request was cancelled or timed out");
+}
+```
+
+## Advanced Request Builders
+
+### Function Request Builders
+
+Some request builders represent API functions:
+
+```csharp
+// Delta queries for change tracking
+var deltaUsers = await graphClient.Users.Delta.GetAsync();
+
+// Get member groups
+var memberGroups = await graphClient.Me.GetMemberGroups.PostAsync(
+    new Microsoft.Graph.Me.GetMemberGroups.GetMemberGroupsPostRequestBody
+    {
+        SecurityEnabledOnly = true
+    }
+);
+
+// Check member objects
+var memberOf = await graphClient.Me.CheckMemberObjects.PostAsync(
+    new Microsoft.Graph.Me.CheckMemberObjects.CheckMemberObjectsPostRequestBody
+    {
+        Ids = new List<string> { "group-id-1", "group-id-2" }
+    }
+);
+```
+
+### Parametrized Request Builders
+
+Some request builders accept parameters:
+
+```csharp
+// Reminder view with date range
+var reminders = await graphClient.Me
+    .ReminderViewWithStartDateTimeWithEndDateTime(
+        "2024-01-01T00:00:00Z",
+        "2024-12-31T23:59:59Z"
+    )
+    .GetAsync();
+```
+
+Method from MeRequestBuilder.cs:575-580:
+
+```csharp
+public global::Microsoft.Graph.Me.ReminderViewWithStartDateTimeWithEndDateTime
+    .ReminderViewWithStartDateTimeWithEndDateTimeRequestBuilder 
+    ReminderViewWithStartDateTimeWithEndDateTime(string endDateTime, string startDateTime)
+{
+    if(string.IsNullOrEmpty(endDateTime)) throw new ArgumentNullException(nameof(endDateTime));
+    if(string.IsNullOrEmpty(startDateTime)) throw new ArgumentNullException(nameof(startDateTime));
+    return new ...ReminderViewWithStartDateTimeWithEndDateTimeRequestBuilder(...);
+}
+```
+
+### Count Request Builders
+
+Get counts of collection items:
+
+```csharp
+// Get count of users
+var userCount = await graphClient.Users.Count.GetAsync();
+Console.WriteLine($"Total users: {userCount}");
+
+// Get count with filter
+var activeUserCount = await graphClient.Users.Count.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "accountEnabled eq true";
+});
+```
+
+## Common Patterns
+
+### Selecting Specific Properties
+
+```csharp
+// Only get user ID - other properties will be null
+var user = await graphClient.Me.GetAsync(config =>
+    config.QueryParameters.Select = new[] { "id" });
+
+Console.WriteLine($"ID: {user.Id}");          // Has value
+Console.WriteLine($"Name: {user.DisplayName}"); // null
+```
+
+### Filtering Collections
+
+```csharp
+// Filter users by department
+var engineers = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "department eq 'Engineering'";
+});
+
+// Complex filter
+var filteredUsers = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Filter = 
+        "startsWith(displayName, 'John') and accountEnabled eq true";
+});
+```
+
+### Sorting Results
+
+```csharp
+// Sort users by display name
+var users = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Orderby = new[] { "displayName" };
+});
+
+// Sort descending
+var usersDesc = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Orderby = new[] { "displayName desc" };
+});
+
+// Multiple sort fields
+var sortedUsers = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Orderby = new[] { "department", "displayName" };
+});
+```
+
+### Expanding Related Entities
+
+```csharp
+// Get user with manager details
+var user = await graphClient.Me.GetAsync(config =>
+{
+    config.QueryParameters.Expand = new[] { "manager" };
+});
+
+// Access expanded properties directly
+if (user.Manager != null)
+{
+    Console.WriteLine($"Manager: {((User)user.Manager).DisplayName}");
+}
+
+// Get messages with attachments
+var messages = await graphClient.Me.Messages.GetAsync(config =>
+{
+    config.QueryParameters.Expand = new[] { "attachments" };
+});
+```
+
+### Pagination
+
+```csharp
+// Get first page
+var messages = await graphClient.Me.Messages.GetAsync(config =>
+{
+    config.QueryParameters.Top = 10;
+});
+
+foreach (var message in messages.Value)
+{
+    Console.WriteLine(message.Subject);
+}
+
+// Check for next page
+if (messages.OdataNextLink != null)
+{
+    // Get next page using the next link
+    // See Collections documentation for detailed pagination examples
+}
+```
+
+## Error Handling
+
+```csharp
+using Microsoft.Graph.Models.ODataErrors;
+using System.Net;
+
+try
+{
+    var user = await graphClient.Users["invalid-id"].GetAsync();
+}
+catch (ODataError ex) when (ex.ResponseStatusCode == (int)HttpStatusCode.NotFound)
+{
+    Console.WriteLine("User not found");
+}
+catch (ODataError ex) when (ex.ResponseStatusCode == (int)HttpStatusCode.Unauthorized)
+{
+    Console.WriteLine("Authentication failed");
+}
+catch (ODataError ex)
+{
+    Console.WriteLine($"Error: {ex.Error?.Code} - {ex.Error?.Message}");
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Select only needed properties">
+    Reduce payload size and improve performance:
+    
+    ```csharp
+    // Good - only get what you need
+    var user = await graphClient.Me.GetAsync(config =>
+        config.QueryParameters.Select = new[] { "id", "displayName", "mail" });
+    
+    // Avoid - gets all properties
+    var user = await graphClient.Me.GetAsync();
+    ```
+  </Accordion>
+  
+  <Accordion title="Use appropriate HTTP methods">
+    Use the correct method for your operation:
+    
+    - `GetAsync()` - Read data (idempotent, safe)
+    - `PostAsync()` - Create resources
+    - `PatchAsync()` - Update resources (partial update)
+    - `DeleteAsync()` - Remove resources
+    
+    Avoid using POST for updates - use PATCH instead.
+  </Accordion>
+  
+  <Accordion title="Handle null values">
+    Properties may be null when not selected or not available:
+    
+    ```csharp
+    var user = await graphClient.Me.GetAsync(config =>
+        config.QueryParameters.Select = new[] { "displayName" });
+    
+    // Good - null check
+    var email = user.Mail ?? "No email";
+    
+    // Bad - may throw NullReferenceException
+    var email = user.Mail.ToLower();
+    ```
+  </Accordion>
+  
+  <Accordion title="Use cancellation tokens">
+    Support request cancellation for better responsiveness:
+    
+    ```csharp
+    var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+    
+    var users = await graphClient.Users.GetAsync(
+        requestConfiguration: config => config.QueryParameters.Top = 100,
+        cancellationToken: cts.Token
+    );
+    ```
+  </Accordion>
+  
+  <Accordion title="Reuse request builders for similar requests">
+    Request builders are lightweight - they don't execute until you call an operation method:
+    
+    ```csharp
+    var messagesBuilder = graphClient.Me.Messages;
+    
+    // Get unread messages
+    var unread = await messagesBuilder.GetAsync(config =>
+        config.QueryParameters.Filter = "isRead eq false");
+    
+    // Get important messages
+    var important = await messagesBuilder.GetAsync(config =>
+        config.QueryParameters.Filter = "importance eq 'high'");
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Query Parameters" icon="filter" href="/core-concepts/query-parameters">
+    Deep dive into OData query options
+  </Card>
+  
+  <Card title="Collections" icon="layer-group" href="/core-concepts/collections">
+    Learn about pagination and collection handling
+  </Card>
+  
+  <Card title="Error Handling" icon="triangle-exclamation" href="/core-concepts/error-handling">
+    Handle errors and exceptions gracefully
+  </Card>
+  
+  <Card title="Headers" icon="heading" href="/core-concepts/headers">
+    Work with custom request and response headers
+  </Card>
+</CardGroup>

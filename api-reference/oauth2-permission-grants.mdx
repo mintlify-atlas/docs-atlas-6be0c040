@@ -1,0 +1,379 @@
+---
+title: 'OAuth2 Permission Grants'
+description: 'OAuth2 delegated permission grant management in Microsoft Graph'
+---
+
+## Overview
+
+The OAuth2PermissionGrants API provides operations to manage delegated permission grants that authorize client applications to access APIs on behalf of signed-in users. Access through `graphClient.Oauth2PermissionGrants`.
+
+## Request Builder
+
+```csharp
+public Oauth2PermissionGrantsRequestBuilder Oauth2PermissionGrants { get; }
+```
+
+Accessed via: `graphClient.Oauth2PermissionGrants`
+
+## Operations
+
+### List OAuth2 Permission Grants
+
+Retrieve all delegated permission grants.
+
+```csharp
+var grants = await graphClient.Oauth2PermissionGrants.GetAsync();
+
+foreach (var grant in grants.Value)
+{
+    Console.WriteLine($"Client ID: {grant.ClientId}");
+    Console.WriteLine($"Resource ID: {grant.ResourceId}");
+    Console.WriteLine($"Consent Type: {grant.ConsentType}");
+    Console.WriteLine($"Principal ID: {grant.PrincipalId}");
+    Console.WriteLine($"Scope: {grant.Scope}");
+    Console.WriteLine();
+}
+
+// Filter grants
+var userGrants = await graphClient.Oauth2PermissionGrants.GetAsync(config =>
+{
+    config.QueryParameters.Filter = $"principalId eq '{userId}'";
+});
+
+var clientGrants = await graphClient.Oauth2PermissionGrants.GetAsync(config =>
+{
+    config.QueryParameters.Filter = $"clientId eq '{servicePrincipalId}'";
+});
+```
+
+**Query Parameters:**
+
+<ParamField path="$filter" type="string">
+  Filter expression (e.g., `"clientId eq 'sp-id'"`)
+</ParamField>
+
+<ParamField path="$select" type="string[]">
+  Properties to return
+</ParamField>
+
+<ParamField path="$expand" type="string[]">
+  Related entities to expand
+</ParamField>
+
+<ParamField path="$top" type="int">
+  Number of grants to return
+</ParamField>
+
+### Get Permission Grant by ID
+
+```csharp
+var grant = await graphClient.Oauth2PermissionGrants["grant-id"].GetAsync();
+
+Console.WriteLine($"Client: {grant.ClientId}");
+Console.WriteLine($"Resource: {grant.ResourceId}");
+Console.WriteLine($"Permissions: {grant.Scope}");
+```
+
+### Create Permission Grant
+
+Grant delegated permissions to a client application.
+
+```csharp
+// Admin consent (all users)
+var adminGrant = new OAuth2PermissionGrant
+{
+    ClientId = "client-service-principal-id",
+    ConsentType = "AllPrincipals", // Admin consent for all users
+    ResourceId = "resource-service-principal-id", // Usually Microsoft Graph SP
+    Scope = "User.Read Mail.Send Calendars.Read"
+};
+
+var grant = await graphClient.Oauth2PermissionGrants.PostAsync(adminGrant);
+
+// User consent (specific user)
+var userGrant = new OAuth2PermissionGrant
+{
+    ClientId = "client-service-principal-id",
+    ConsentType = "Principal", // User consent
+    PrincipalId = "user-id",
+    ResourceId = "resource-service-principal-id",
+    Scope = "User.Read openid profile"
+};
+
+var grant = await graphClient.Oauth2PermissionGrants.PostAsync(userGrant);
+```
+
+**Properties:**
+
+<ParamField path="ClientId" type="string" required>
+  Object ID of the service principal (client application) being authorized
+</ParamField>
+
+<ParamField path="ConsentType" type="string" required>
+  Type of consent: `AllPrincipals` (admin) or `Principal` (user)
+</ParamField>
+
+<ParamField path="ResourceId" type="string" required>
+  Object ID of the resource service principal (API)
+</ParamField>
+
+<ParamField path="Scope" type="string" required>
+  Space-separated list of delegated permissions (e.g., `"User.Read Mail.Send"`)
+</ParamField>
+
+<ParamField path="PrincipalId" type="string">
+  User object ID (required when ConsentType is `Principal`)
+</ParamField>
+
+### Update Permission Grant
+
+Modify the scope of an existing grant.
+
+```csharp
+var updateGrant = new OAuth2PermissionGrant
+{
+    Scope = "User.Read Mail.Read Calendars.Read Files.Read"
+};
+
+await graphClient.Oauth2PermissionGrants["grant-id"].PatchAsync(updateGrant);
+```
+
+### Delete Permission Grant
+
+Revoke delegated permissions.
+
+```csharp
+await graphClient.Oauth2PermissionGrants["grant-id"].DeleteAsync();
+```
+
+## Consent Types
+
+### Admin Consent (AllPrincipals)
+
+Grants permissions for all users in the organization.
+
+```csharp
+var adminConsent = new OAuth2PermissionGrant
+{
+    ClientId = "sp-id",
+    ConsentType = "AllPrincipals",
+    ResourceId = "resource-sp-id",
+    Scope = "User.Read.All",
+    PrincipalId = null // Not used for admin consent
+};
+```
+
+### User Consent (Principal)
+
+Grants permissions for a specific user.
+
+```csharp
+var userConsent = new OAuth2PermissionGrant
+{
+    ClientId = "sp-id",
+    ConsentType = "Principal",
+    ResourceId = "resource-sp-id",
+    Scope = "User.Read",
+    PrincipalId = "user-id" // Required
+};
+```
+
+## Common Scenarios
+
+### Grant Admin Consent for Microsoft Graph
+
+```csharp
+// First, find Microsoft Graph service principal
+var graphSps = await graphClient.ServicePrincipals.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "appId eq '00000003-0000-0000-c000-000000000000'";
+});
+var graphSpId = graphSps.Value.First().Id;
+
+// Grant admin consent
+var grant = new OAuth2PermissionGrant
+{
+    ClientId = "your-app-service-principal-id",
+    ConsentType = "AllPrincipals",
+    ResourceId = graphSpId,
+    Scope = "User.Read.All Group.Read.All"
+};
+
+await graphClient.Oauth2PermissionGrants.PostAsync(grant);
+```
+
+### Check User's Consented Permissions
+
+```csharp
+var userGrants = await graphClient.Oauth2PermissionGrants.GetAsync(config =>
+{
+    config.QueryParameters.Filter = 
+        $"principalId eq '{userId}' and clientId eq '{clientSpId}'";
+});
+
+foreach (var grant in userGrants.Value)
+{
+    Console.WriteLine($"Permissions: {grant.Scope}");
+}
+```
+
+### Revoke All Permissions for Application
+
+```csharp
+var grants = await graphClient.Oauth2PermissionGrants.GetAsync(config =>
+{
+    config.QueryParameters.Filter = $"clientId eq '{servicePrincipalId}'";
+});
+
+foreach (var grant in grants.Value)
+{
+    await graphClient.Oauth2PermissionGrants[grant.Id].DeleteAsync();
+    Console.WriteLine($"Revoked grant: {grant.Id}");
+}
+```
+
+### Add Permissions to Existing Grant
+
+```csharp
+// Get existing grant
+var grants = await graphClient.Oauth2PermissionGrants.GetAsync(config =>
+{
+    config.QueryParameters.Filter = 
+        $"clientId eq '{clientId}' and resourceId eq '{resourceId}' and consentType eq 'AllPrincipals'";
+});
+
+var existingGrant = grants.Value.FirstOrDefault();
+
+if (existingGrant != null)
+{
+    // Parse existing scopes
+    var scopes = existingGrant.Scope.Split(' ').ToList();
+    
+    // Add new scopes
+    var newScopes = new[] { "Mail.Read", "Calendars.Read" };
+    scopes.AddRange(newScopes.Where(s => !scopes.Contains(s)));
+    
+    // Update grant
+    var updateGrant = new OAuth2PermissionGrant
+    {
+        Scope = string.Join(" ", scopes.Distinct())
+    };
+    
+    await graphClient.Oauth2PermissionGrants[existingGrant.Id].PatchAsync(updateGrant);
+}
+```
+
+### Grant Permissions for Custom API
+
+```csharp
+// Find your API's service principal
+var apiSps = await graphClient.ServicePrincipals.GetAsync(config =>
+{
+    config.QueryParameters.Filter = $"appId eq '{yourApiAppId}'";
+});
+var apiSpId = apiSps.Value.First().Id;
+
+// Grant permissions
+var grant = new OAuth2PermissionGrant
+{
+    ClientId = "client-sp-id",
+    ConsentType = "AllPrincipals",
+    ResourceId = apiSpId,
+    Scope = "Data.Read Data.Write"
+};
+
+await graphClient.Oauth2PermissionGrants.PostAsync(grant);
+```
+
+## Delegated vs Application Permissions
+
+<Note>
+  OAuth2 Permission Grants are for **delegated permissions** only (permissions that require a signed-in user). 
+  
+  For **application permissions** (app-only access without a user), use App Role Assignments instead:
+  ```csharp
+  await graphClient.ServicePrincipals["sp-id"]
+      .AppRoleAssignments
+      .PostAsync(new AppRoleAssignment { ... });
+  ```
+</Note>
+
+## Permission Scope Format
+
+The `Scope` property is a space-separated list of permission values:
+
+```csharp
+Scope = "User.Read Mail.Send Calendars.Read Files.ReadWrite"
+```
+
+Common scopes:
+- `User.Read` - Read user profile
+- `User.ReadWrite.All` - Read and write all users
+- `Mail.Read` - Read user mail
+- `Mail.Send` - Send mail as user
+- `Calendars.Read` - Read calendars
+- `Files.ReadWrite.All` - Read and write all files
+- `Group.Read.All` - Read all groups
+
+## Delta Query
+
+```csharp
+var delta = await graphClient.Oauth2PermissionGrants.Delta.GetAsync();
+
+foreach (var grant in delta.Value)
+{
+    Console.WriteLine($"Changed grant: {grant.Id}");
+}
+
+var deltaLink = delta.OdataDeltaLink;
+```
+
+## Error Handling
+
+```csharp
+using Microsoft.Graph.Models.ODataErrors;
+
+try
+{
+    var grant = await graphClient.Oauth2PermissionGrants.PostAsync(newGrant);
+}
+catch (ODataError error)
+{
+    if (error.Error.Code == "Request_BadRequest")
+    {
+        Console.WriteLine("Invalid grant configuration");
+    }
+    else if (error.Error.Code == "Authorization_RequestDenied")
+    {
+        Console.WriteLine("Insufficient privileges to grant consent");
+    }
+    else
+    {
+        Console.WriteLine($"Error: {error.Error.Message}");
+    }
+}
+```
+
+## Required Permissions
+
+To manage OAuth2 permission grants, your application needs:
+
+- **DelegatedPermissionGrant.ReadWrite.All** - Read and write all delegated permissions
+- **Directory.ReadWrite.All** - Full directory access
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="OAuth2PermissionGrant Model" href="https://learn.microsoft.com/graph/api/resources/oauth2permissiongrant" icon="key">
+    Permission grant properties
+  </Card>
+  <Card title="Service Principals" href="/api-reference/service-principals" icon="cogs">
+    Service principal management
+  </Card>
+  <Card title="Applications" href="/api-reference/applications" icon="window-maximize">
+    Application registrations
+  </Card>
+  <Card title="Permissions Reference" href="https://learn.microsoft.com/graph/permissions-reference" icon="book">
+    Microsoft Graph permissions
+  </Card>
+</CardGroup>

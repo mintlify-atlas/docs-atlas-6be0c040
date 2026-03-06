@@ -1,0 +1,452 @@
+---
+title: Authentication
+description: Learn how to authenticate requests to Microsoft Graph using Azure.Identity and TokenCredential
+icon: key
+---
+
+Authentication is required for all Microsoft Graph API requests. The SDK v5+ uses Azure.Identity's `TokenCredential` implementations, providing secure and flexible authentication options.
+
+## Overview
+
+The Microsoft Graph .NET SDK doesn't implement authentication directly. Instead, it accepts any `TokenCredential` from the [Azure.Identity library](https://www.nuget.org/packages/Azure.Identity), which handles token acquisition and management.
+
+<Note>
+  The SDK v5 uses Azure.Identity's `TokenCredential` directly. You no longer need a separate authentication library like the deprecated `Microsoft.Graph.Auth` package.
+</Note>
+
+## Installation
+
+Install the required packages:
+
+```bash
+dotnet add package Microsoft.Graph
+dotnet add package Azure.Identity
+```
+
+## Authentication Flow Types
+
+Choose the authentication flow based on your application type and requirements:
+
+### Interactive Browser (Desktop Apps)
+
+Best for desktop applications where users can interact with a browser window.
+
+```csharp
+using Azure.Identity;
+using Microsoft.Graph;
+
+string[] scopes = { "User.Read" };
+string clientId = "YOUR_CLIENT_ID";
+
+var options = new InteractiveBrowserCredentialOptions
+{
+    ClientId = clientId
+};
+
+var credential = new InteractiveBrowserCredential(options);
+var graphClient = new GraphServiceClient(credential, scopes);
+
+var user = await graphClient.Me.GetAsync();
+Console.WriteLine($"Hello, {user.DisplayName}!");
+```
+
+<Accordion title="Configuration Details">
+  - **ClientId**: Application (client) ID from Azure AD app registration
+  - **TenantId**: Optional - defaults to "organizations" for multi-tenant
+  - **RedirectUri**: Optional - defaults to `http://localhost`
+  
+  The browser opens automatically for user sign-in. Tokens are cached for subsequent requests.
+</Accordion>
+
+### Device Code Flow (Device Apps)
+
+Ideal for devices without a web browser or input constraints (IoT devices, CLI tools).
+
+```csharp
+using Azure.Identity;
+using Microsoft.Graph;
+
+string[] scopes = { "User.Read" };
+string clientId = "YOUR_CLIENT_ID";
+string tenantId = "YOUR_TENANT_ID";
+
+var options = new DeviceCodeCredentialOptions
+{
+    ClientId = clientId,
+    TenantId = tenantId,
+    DeviceCodeCallback = (code, cancellation) =>
+    {
+        Console.WriteLine(code.Message);
+        return Task.CompletedTask;
+    }
+};
+
+var credential = new DeviceCodeCredential(options);
+var graphClient = new GraphServiceClient(credential, scopes);
+
+var user = await graphClient.Me.GetAsync();
+```
+
+<Info>
+  The device code flow displays a code and URL for users to authenticate on another device. Perfect for scenarios where direct browser interaction isn't possible.
+</Info>
+
+### Client Secret (Daemon/Service Apps)
+
+For server-side applications that run without user interaction.
+
+```csharp
+using Azure.Identity;
+using Microsoft.Graph;
+
+string[] scopes = { "https://graph.microsoft.com/.default" };
+string tenantId = "YOUR_TENANT_ID";
+string clientId = "YOUR_CLIENT_ID";
+string clientSecret = "YOUR_CLIENT_SECRET";
+
+var credential = new ClientSecretCredential(
+    tenantId,
+    clientId,
+    clientSecret
+);
+
+var graphClient = new GraphServiceClient(credential, scopes);
+
+// Application permissions - access specific users, not /me
+var user = await graphClient.Users["user-id"].GetAsync();
+```
+
+<Warning>
+  **Application Permissions Required**: Client credential flows use application permissions (not delegated). You must request admin consent and use the `.default` scope. You cannot access `/me` endpoint - use specific user IDs instead.
+</Warning>
+
+### Client Certificate (Daemon/Service Apps)
+
+More secure alternative to client secrets for server applications.
+
+```csharp
+using Azure.Identity;
+using Microsoft.Graph;
+using System.Security.Cryptography.X509Certificates;
+
+string[] scopes = { "https://graph.microsoft.com/.default" };
+string tenantId = "YOUR_TENANT_ID";
+string clientId = "YOUR_CLIENT_ID";
+string certificatePath = "/path/to/certificate.pfx";
+
+// Option 1: Load from file path
+var credential = new ClientCertificateCredential(
+    tenantId,
+    clientId,
+    certificatePath
+);
+
+// Option 2: Use X509Certificate2 instance
+var certificate = new X509Certificate2(certificatePath, "password");
+var credential = new ClientCertificateCredential(
+    tenantId,
+    clientId,
+    certificate
+);
+
+var graphClient = new GraphServiceClient(credential, scopes);
+var users = await graphClient.Users.GetAsync();
+```
+
+### Username/Password (ROPC)
+
+Only use when other flows are not possible. Does not support MFA.
+
+```csharp
+using Azure.Identity;
+using Microsoft.Graph;
+
+string[] scopes = { "User.Read" };
+string tenantId = "YOUR_TENANT_ID";
+string clientId = "YOUR_CLIENT_ID";
+string username = "user@contoso.com";
+string password = "password";
+
+var credential = new UsernamePasswordCredential(
+    username,
+    password,
+    tenantId,
+    clientId
+);
+
+var graphClient = new GraphServiceClient(credential, scopes);
+var user = await graphClient.Me.GetAsync();
+```
+
+<Warning>
+  The Resource Owner Password Credential (ROPC) flow is **not recommended**. It doesn't support MFA, conditional access, or consent. Use only as a last resort for legacy scenarios.
+</Warning>
+
+### Authorization Code (Web Apps)
+
+For web applications that can securely store client secrets.
+
+```csharp
+using Azure.Identity;
+using Microsoft.Graph;
+
+string[] scopes = { "User.Read" };
+string tenantId = "YOUR_TENANT_ID";
+string clientId = "YOUR_CLIENT_ID";
+string clientSecret = "YOUR_CLIENT_SECRET";
+string authorizationCode = "CODE_FROM_REDIRECT"; // From OAuth redirect
+
+var credential = new AuthorizationCodeCredential(
+    tenantId,
+    clientId,
+    clientSecret,
+    authorizationCode
+);
+
+var graphClient = new GraphServiceClient(credential, scopes);
+var user = await graphClient.Me.GetAsync();
+```
+
+## Advanced Authentication
+
+### Environment Variables
+
+Use environment variables for configuration in different environments.
+
+```csharp
+using Azure.Identity;
+using Microsoft.Graph;
+
+// Set these environment variables:
+// AZURE_TENANT_ID - Tenant ID
+// AZURE_CLIENT_ID - Client ID  
+// AZURE_CLIENT_SECRET - Client secret (or)
+// AZURE_CLIENT_CERTIFICATE_PATH - Certificate path (or)
+// AZURE_USERNAME and AZURE_PASSWORD - User credentials
+
+string[] scopes = { "User.Read" };
+
+var credential = new EnvironmentCredential();
+var graphClient = new GraphServiceClient(credential, scopes);
+
+var user = await graphClient.Me.GetAsync();
+```
+
+### Chained Credentials
+
+Try multiple authentication methods in sequence until one succeeds.
+
+```csharp
+using Azure.Identity;
+using Microsoft.Graph;
+
+string[] scopes = { "User.Read" };
+string clientId = "YOUR_CLIENT_ID";
+
+// Try environment variables first, then interactive browser
+var credential = new ChainedTokenCredential(
+    new EnvironmentCredential(),
+    new InteractiveBrowserCredential(new InteractiveBrowserCredentialOptions
+    {
+        ClientId = clientId
+    })
+);
+
+var graphClient = new GraphServiceClient(credential, scopes);
+var user = await graphClient.Me.GetAsync();
+```
+
+<Tip>
+  Chained credentials are excellent for development scenarios: use developer credentials locally and managed identity in production, all with the same code.
+</Tip>
+
+### Managed Identity (Azure Resources)
+
+For applications running in Azure (App Service, Functions, VMs).
+
+```csharp
+using Azure.Identity;
+using Microsoft.Graph;
+
+string[] scopes = { "https://graph.microsoft.com/.default" };
+
+// System-assigned managed identity
+var credential = new ManagedIdentityCredential();
+
+// Or user-assigned managed identity
+// var credential = new ManagedIdentityCredential("CLIENT_ID");
+
+var graphClient = new GraphServiceClient(credential, scopes);
+var users = await graphClient.Users.GetAsync();
+```
+
+### On-Behalf-Of Flow (Web APIs)
+
+For middle-tier services that call Graph on behalf of a user.
+
+```csharp
+using Azure.Identity;
+using Microsoft.Graph;
+
+string[] scopes = { "User.Read" };
+string tenantId = "YOUR_TENANT_ID";
+string clientId = "YOUR_CLIENT_ID";
+string clientSecret = "YOUR_CLIENT_SECRET";
+string userAccessToken = "TOKEN_FROM_INCOMING_REQUEST";
+
+var credential = new OnBehalfOfCredential(
+    tenantId,
+    clientId,
+    clientSecret,
+    userAccessToken
+);
+
+var graphClient = new GraphServiceClient(credential, scopes);
+var user = await graphClient.Me.GetAsync();
+```
+
+## Scopes and Permissions
+
+### Understanding Scopes
+
+Scopes define what your application can access:
+
+```csharp
+// Delegated scopes (user context)
+string[] delegatedScopes = 
+{
+    "User.Read",           // Read user profile
+    "Mail.Read",           // Read mail
+    "Calendars.ReadWrite"  // Read and write calendar
+};
+
+// Application scopes (app context)
+string[] applicationScopes = 
+{
+    "https://graph.microsoft.com/.default" // All configured permissions
+};
+```
+
+<Note>
+  **Delegated vs Application Permissions**:
+  - **Delegated**: App acts on behalf of a signed-in user (use specific scopes)
+  - **Application**: App acts as itself without a user (use `.default` scope)
+</Note>
+
+### Incremental Consent
+
+Request only the scopes you need initially:
+
+```csharp
+// Start with basic permissions
+string[] basicScopes = { "User.Read" };
+var graphClient = new GraphServiceClient(credential, basicScopes);
+
+// Later, request additional permissions as needed
+string[] additionalScopes = { "Mail.Read", "Calendars.Read" };
+var newClient = new GraphServiceClient(credential, additionalScopes);
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Store credentials securely">
+    Never hardcode secrets in source code. Use:
+    - Azure Key Vault for production
+    - User Secrets for development
+    - Environment variables for configuration
+    - Managed Identity when running in Azure
+    
+    ```csharp
+    // Good - from configuration
+    var clientSecret = configuration["AzureAd:ClientSecret"];
+    
+    // Bad - hardcoded
+    var clientSecret = "abc123def456";
+    ```
+  </Accordion>
+  
+  <Accordion title="Request minimum required scopes">
+    Follow the principle of least privilege:
+    
+    ```csharp
+    // Good - specific scopes
+    string[] scopes = { "User.Read", "Mail.Read" };
+    
+    // Avoid - overly broad permissions
+    string[] scopes = { "Directory.ReadWrite.All" };
+    ```
+  </Accordion>
+  
+  <Accordion title="Handle token refresh automatically">
+    `TokenCredential` implementations handle token refresh automatically. Don't implement manual refresh logic:
+    
+    ```csharp
+    // SDK handles refresh automatically
+    var user1 = await graphClient.Me.GetAsync(); // Gets token
+    await Task.Delay(TimeSpan.FromHours(1));     // Token expires
+    var user2 = await graphClient.Me.GetAsync(); // Automatically refreshes
+    ```
+  </Accordion>
+  
+  <Accordion title="Use certificate authentication for production">
+    Prefer certificates over client secrets for enhanced security:
+    - Certificates are harder to compromise
+    - Can be stored in Azure Key Vault
+    - Support for HSM-backed keys
+    - Better audit trails
+  </Accordion>
+</AccordionGroup>
+
+## Common Errors
+
+### Invalid Scope
+
+```csharp
+// Error: AADSTS70011: Invalid scope
+// Cause: Scope not configured in app registration
+
+// Solution: Ensure scope is added in Azure AD app registration
+string[] scopes = { "User.Read" }; // Must be configured in portal
+```
+
+### Insufficient Privileges
+
+```csharp
+// Error: Insufficient privileges to complete the operation
+// Cause: Application doesn't have required permissions or admin consent
+
+// Solution: 
+// 1. Add permission in Azure AD app registration
+// 2. Grant admin consent
+// 3. Use correct permission type (delegated vs application)
+```
+
+### Tenant Not Found
+
+```csharp
+// Error: AADSTS90002: Tenant not found
+// Cause: Invalid tenant ID
+
+// Solution: Use correct tenant ID format
+string tenantId = "contoso.onmicrosoft.com"; // Or GUID
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="GraphServiceClient" icon="circle-nodes" href="/core-concepts/graph-service-client">
+    Learn how to initialize and configure the client
+  </Card>
+  
+  <Card title="Making Requests" icon="paper-plane" href="/core-concepts/request-builders">
+    Start making API calls with request builders
+  </Card>
+</CardGroup>
+
+## Additional Resources
+
+- [Microsoft Graph Permissions Reference](https://learn.microsoft.com/graph/permissions-reference)
+- [Azure.Identity Documentation](https://learn.microsoft.com/dotnet/api/azure.identity)
+- [Microsoft identity platform authentication flows](https://learn.microsoft.com/azure/active-directory/develop/authentication-flows-app-scenarios)
+- [Register an application with Microsoft identity platform](https://learn.microsoft.com/graph/auth-register-app-v2)

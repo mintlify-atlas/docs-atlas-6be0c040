@@ -1,0 +1,479 @@
+---
+title: 'Drives'
+description: 'OneDrive and SharePoint drive operations in Microsoft Graph'
+---
+
+## Overview
+
+The Drives API provides operations to manage OneDrive personal drives, OneDrive for Business drives, and SharePoint document libraries. Access through `graphClient.Drives`.
+
+## Request Builder
+
+```csharp
+public DrivesRequestBuilder Drives { get; }
+```
+
+Accessed via: `graphClient.Drives`
+
+## Operations
+
+### List Drives
+
+Retrieve all available drives.
+
+```csharp
+public async Task<DriveCollectionResponse> GetAsync(
+    Action<RequestConfiguration<DrivesRequestBuilderGetQueryParameters>> requestConfiguration = default,
+    CancellationToken cancellationToken = default
+)
+```
+
+**Query Parameters:**
+
+<ParamField path="$select" type="string[]">
+  Properties to return (e.g., `["id", "name", "driveType"]`)
+</ParamField>
+
+<ParamField path="$filter" type="string">
+  Filter expression (e.g., `"driveType eq 'personal'"`)
+</ParamField>
+
+<ParamField path="$orderby" type="string[]">
+  Sort order (e.g., `["name"]`)
+</ParamField>
+
+<ParamField path="$top" type="int">
+  Number of drives to return
+</ParamField>
+
+<ParamField path="$expand" type="string[]">
+  Expand related entities
+</ParamField>
+
+**Example:**
+
+```csharp
+// List all drives
+var drives = await graphClient.Drives.GetAsync();
+
+foreach (var drive in drives.Value)
+{
+    Console.WriteLine($"{drive.Name} ({drive.DriveType})");
+    Console.WriteLine($"  Owner: {drive.Owner.User?.DisplayName}");
+    Console.WriteLine($"  Used: {drive.Quota.Used / (1024 * 1024)} MB");
+    Console.WriteLine($"  Total: {drive.Quota.Total / (1024 * 1024)} MB");
+}
+```
+
+### Get User's Default Drive
+
+Access the current user's OneDrive.
+
+```csharp
+// Current user's drive
+var myDrive = await graphClient.Me.Drive.GetAsync();
+
+// Specific user's drive
+var userDrive = await graphClient.Users["user-id"].Drive.GetAsync();
+
+Console.WriteLine($"Drive ID: {myDrive.Id}");
+Console.WriteLine($"Web URL: {myDrive.WebUrl}");
+```
+
+### Get Drive by ID
+
+Retrieve a specific drive.
+
+```csharp
+var drive = await graphClient.Drives["drive-id"].GetAsync();
+
+// Select specific properties
+var drive = await graphClient.Drives["drive-id"].GetAsync(config =>
+{
+    config.QueryParameters.Select = new[] { "id", "name", "quota" };
+});
+```
+
+### Get Group Drive
+
+Access a Microsoft 365 group's shared drive.
+
+```csharp
+var groupDrive = await graphClient.Groups["group-id"].Drive.GetAsync();
+
+Console.WriteLine($"Group drive: {groupDrive.Name}");
+```
+
+### Get Site Drive
+
+Access a SharePoint site's document library.
+
+```csharp
+// Default document library
+var siteDrive = await graphClient.Sites["site-id"].Drive.GetAsync();
+
+// All document libraries
+var siteDrives = await graphClient.Sites["site-id"].Drives.GetAsync();
+
+foreach (var drive in siteDrives.Value)
+{
+    Console.WriteLine($"Library: {drive.Name}");
+}
+```
+
+## Drive Properties
+
+**Response:**
+
+<ResponseField name="id" type="string">
+  Unique identifier for the drive
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Display name of the drive
+</ResponseField>
+
+<ResponseField name="driveType" type="string">
+  Type of drive: `personal`, `business`, `documentLibrary`
+</ResponseField>
+
+<ResponseField name="owner" type="IdentitySet">
+  Owner of the drive (user, group, or application)
+</ResponseField>
+
+<ResponseField name="quota" type="Quota">
+  Storage quota information (total, used, remaining, deleted)
+</ResponseField>
+
+<ResponseField name="webUrl" type="string">
+  URL to view the drive in a browser
+</ResponseField>
+
+<ResponseField name="sharePointIds" type="SharePointIds">
+  SharePoint-specific identifiers (if applicable)
+</ResponseField>
+
+## Root Folder Operations
+
+### Access Root Folder
+
+```csharp
+var root = await graphClient.Me.Drive.Root.GetAsync();
+
+Console.WriteLine($"Root folder ID: {root.Id}");
+Console.WriteLine($"Child count: {root.Folder.ChildCount}");
+```
+
+### List Root Children
+
+```csharp
+var children = await graphClient.Me.Drive.Root.Children.GetAsync();
+
+foreach (var item in children.Value)
+{
+    if (item.Folder != null)
+    {
+        Console.WriteLine($"[Folder] {item.Name} ({item.Folder.ChildCount} items)");
+    }
+    else if (item.File != null)
+    {
+        Console.WriteLine($"[File] {item.Name} ({item.Size} bytes)");
+    }
+}
+```
+
+### Create Folder in Root
+
+```csharp
+var newFolder = new DriveItem
+{
+    Name = "Project Documents",
+    Folder = new Folder { }
+};
+
+var folder = await graphClient.Me.Drive.Root.Children.PostAsync(newFolder);
+Console.WriteLine($"Created folder: {folder.Id}");
+```
+
+### Upload File to Root
+
+```csharp
+// Small file (< 4MB)
+using var fileStream = File.OpenRead("document.pdf");
+var uploadedItem = await graphClient.Me.Drive.Root
+    .ItemWithPath("document.pdf")
+    .Content
+    .PutAsync(fileStream);
+
+Console.WriteLine($"Uploaded: {uploadedItem.Name}");
+Console.WriteLine($"Download URL: {uploadedItem.AdditionalData["@microsoft.graph.downloadUrl"]}");
+```
+
+## Search Drive
+
+### Search for Items
+
+```csharp
+var searchResults = await graphClient.Me.Drive.Root
+    .Search("project")
+    .GetAsync();
+
+foreach (var item in searchResults.Value)
+{
+    Console.WriteLine($"{item.Name} - {item.WebUrl}");
+}
+
+// Search with query parameters
+var results = await graphClient.Me.Drive.Root
+    .Search("*.pdf")
+    .GetAsync(config =>
+{
+    config.QueryParameters.Select = new[] { "id", "name", "size" };
+    config.QueryParameters.Top = 25;
+});
+```
+
+## Recent Files
+
+Get recently accessed files.
+
+```csharp
+var recentFiles = await graphClient.Me.Drive.Recent().GetAsync();
+
+foreach (var item in recentFiles.Value)
+{
+    Console.WriteLine($"{item.Name} - Last accessed: {item.LastModifiedDateTime}");
+}
+```
+
+## Shared With Me
+
+Get items shared with the current user.
+
+```csharp
+var sharedItems = await graphClient.Me.Drive.SharedWithMe().GetAsync();
+
+foreach (var item in sharedItems.Value)
+{
+    var remoteItem = item.RemoteItem;
+    Console.WriteLine($"{remoteItem.Name}");
+    Console.WriteLine($"  Shared by: {remoteItem.SharedBy?.User?.DisplayName}");
+    Console.WriteLine($"  Parent: {remoteItem.ParentReference?.DriveId}");
+}
+```
+
+## Special Folders
+
+Access special folders by name.
+
+```csharp
+// Documents folder
+var documents = await graphClient.Me.Drive.Special["documents"].GetAsync();
+
+// Photos folder  
+var photos = await graphClient.Me.Drive.Special["photos"].GetAsync();
+
+// App root folder (for app-specific storage)
+var appRoot = await graphClient.Me.Drive.Special["approot"].GetAsync();
+
+// Available special folders:
+// - documents
+// - photos  
+// - cameraroll
+// - approot
+// - music
+```
+
+## Following Items
+
+### List Followed Items
+
+```csharp
+var followedItems = await graphClient.Me.Drive.Following().GetAsync();
+
+foreach (var item in followedItems.Value)
+{
+    Console.WriteLine($"{item.Name} - {item.WebUrl}");
+}
+```
+
+### Follow an Item
+
+```csharp
+await graphClient.Drives["drive-id"]
+    .Items["item-id"]
+    .Follow
+    .PostAsync();
+```
+
+### Unfollow an Item
+
+```csharp
+await graphClient.Drives["drive-id"]
+    .Items["item-id"]
+    .Unfollow
+    .PostAsync();
+```
+
+## Delta Query
+
+Track changes in a drive.
+
+```csharp
+// Initial delta query
+var deltaResponse = await graphClient.Me.Drive.Root.Delta.GetAsync();
+
+foreach (var item in deltaResponse.Value)
+{
+    if (item.Deleted != null)
+    {
+        Console.WriteLine($"Deleted: {item.Name}");
+    }
+    else
+    {
+        Console.WriteLine($"Added/Modified: {item.Name}");
+    }
+}
+
+// Store deltaLink for next query
+var deltaLink = deltaResponse.OdataDeltaLink;
+
+// Subsequent delta query
+if (!string.IsNullOrEmpty(deltaLink))
+{
+    var nextDelta = await graphClient.Me.Drive.Root.Delta
+        .WithUrl(deltaLink)
+        .GetAsync();
+}
+```
+
+## Drive Quota
+
+```csharp
+var drive = await graphClient.Me.Drive.GetAsync();
+var quota = drive.Quota;
+
+Console.WriteLine($"Total: {quota.Total / (1024 * 1024 * 1024):F2} GB");
+Console.WriteLine($"Used: {quota.Used / (1024 * 1024 * 1024):F2} GB");
+Console.WriteLine($"Remaining: {quota.Remaining / (1024 * 1024 * 1024):F2} GB");
+Console.WriteLine($"Deleted: {quota.Deleted / (1024 * 1024):F2} MB");
+Console.WriteLine($"State: {quota.State}"); // normal, nearing, critical, exceeded
+```
+
+## Thumbnails
+
+Get thumbnails for items in a drive.
+
+```csharp
+var thumbnails = await graphClient.Me.Drive.Root.Thumbnails.GetAsync();
+
+foreach (var thumbnailSet in thumbnails.Value)
+{
+    if (thumbnailSet.Large != null)
+    {
+        Console.WriteLine($"Large thumbnail: {thumbnailSet.Large.Url}");
+    }
+    if (thumbnailSet.Medium != null)
+    {
+        Console.WriteLine($"Medium thumbnail: {thumbnailSet.Medium.Url}");
+    }
+    if (thumbnailSet.Small != null)
+    {
+        Console.WriteLine($"Small thumbnail: {thumbnailSet.Small.Url}");
+    }
+}
+```
+
+## Bundle Support
+
+Work with album bundles (photos).
+
+```csharp
+// List bundles
+var bundles = await graphClient.Me.Drive.Bundles.GetAsync();
+
+foreach (var bundle in bundles.Value)
+{
+    Console.WriteLine($"Album: {bundle.Name}");
+    Console.WriteLine($"Items: {bundle.Bundle.ChildCount}");
+}
+
+// Create album
+var newBundle = new DriveItem
+{
+    Name = "Vacation Photos",
+    Bundle = new Bundle
+    {
+        Album = new Album { }
+    },
+    AdditionalData = new Dictionary<string, object>
+    {
+        { "@microsoft.graph.conflictBehavior", "rename" }
+    }
+};
+
+var album = await graphClient.Me.Drive.Bundles.PostAsync(newBundle);
+```
+
+## Error Handling
+
+```csharp
+using Microsoft.Graph.Models.ODataErrors;
+
+try
+{
+    var drive = await graphClient.Drives["invalid-id"].GetAsync();
+}
+catch (ODataError error)
+{
+    if (error.Error.Code == "itemNotFound")
+    {
+        Console.WriteLine("Drive not found");
+    }
+    else if (error.Error.Code == "accessDenied")
+    {
+        Console.WriteLine("Access denied to drive");
+    }
+    else
+    {
+        Console.WriteLine($"Error: {error.Error.Message}");
+    }
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Delta Queries for Sync">
+    Instead of polling for changes, use delta queries to efficiently track modifications in large drives.
+  </Accordion>
+
+  <Accordion title="Handle Large Files Properly">
+    Files under 4MB can use simple upload. Files larger than 4MB should use upload sessions for reliability.
+  </Accordion>
+
+  <Accordion title="Cache Drive IDs">
+    Drive IDs are stable. Cache them to avoid repeated lookups, especially for group and site drives.
+  </Accordion>
+
+  <Accordion title="Use Special Folders">
+    When possible, use special folder names (documents, photos) instead of hardcoding paths.
+  </Accordion>
+</AccordionGroup>
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Drive Model" href="https://learn.microsoft.com/graph/api/resources/drive" icon="hard-drive">
+    Drive resource properties
+  </Card>
+  <Card title="DriveItems API" href="/api-reference/drive-items" icon="file">
+    File and folder operations
+  </Card>
+  <Card title="Sites API" href="/api-reference/sites" icon="sitemap">
+    SharePoint sites
+  </Card>
+  <Card title="Large File Upload" href="/guides/file-upload" icon="cloud-arrow-up">
+    Upload large files guide
+  </Card>
+</CardGroup>

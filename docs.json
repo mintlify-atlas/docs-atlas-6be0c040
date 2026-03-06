@@ -1,122 +1,129 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Microsoft Graph .NET SDK",
+  "theme": "linden",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#646464",
+    "light": "#08a8e7",
+    "dark": "#cf9b0b"
   },
-  "favicon": "/favicon.svg",
+  "favicon": "https://media.brand.dev/426c0c31-0959-4a78-829b-1befc51b9057.png",
+  "logo": {
+    "light": "https://media.brand.dev/10b80521-d7ed-4d23-b40e-b483aa52f15b.png",
+    "dark": "https://media.brand.dev/10b80521-d7ed-4d23-b40e-b483aa52f15b.png"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/microsoftgraph/msgraph-sdk-dotnet"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/microsoftgraph/msgraph-sdk-dotnet"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
-              "quickstart",
-              "development"
+              "introduction",
+              "installation",
+              "quickstart"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "core-concepts/overview",
+              "core-concepts/authentication",
+              "core-concepts/graph-service-client",
+              "core-concepts/request-builders",
+              "core-concepts/query-parameters",
+              "core-concepts/collections",
+              "core-concepts/error-handling",
+              "core-concepts/headers"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Guides",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "guides/working-with-users",
+              "guides/working-with-groups",
+              "guides/working-with-mail",
+              "guides/working-with-files",
+              "guides/working-with-calendar",
+              "guides/batch-requests",
+              "guides/large-file-upload",
+              "guides/change-notifications"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Migration Guides",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "migration/upgrade-to-v5",
+              "migration/upgrade-to-v4",
+              "migration/from-v1"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Client",
             "pages": [
-              "api-reference/introduction"
+              "api-reference/graph-service-client",
+              "api-reference/authentication-providers"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Users & Groups",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api-reference/users",
+              "api-reference/groups",
+              "api-reference/directory-objects"
+            ]
+          },
+          {
+            "group": "Mail & Calendar",
+            "pages": [
+              "api-reference/messages",
+              "api-reference/calendar",
+              "api-reference/events"
+            ]
+          },
+          {
+            "group": "Files & Drives",
+            "pages": [
+              "api-reference/drives",
+              "api-reference/drive-items",
+              "api-reference/sites"
+            ]
+          },
+          {
+            "group": "Teams & Communication",
+            "pages": [
+              "api-reference/teams",
+              "api-reference/channels",
+              "api-reference/chats"
+            ]
+          },
+          {
+            "group": "Identity & Access",
+            "pages": [
+              "api-reference/applications",
+              "api-reference/service-principals",
+              "api-reference/oauth2-permission-grants"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

@@ -1,0 +1,498 @@
+---
+title: 'Service Principals'
+description: 'Service principal management in Microsoft Graph'
+---
+
+## Overview
+
+The Service Principals API provides operations to manage service principals (enterprise applications) in Azure AD. Access through `graphClient.ServicePrincipals`.
+
+## Request Builder
+
+```csharp
+public ServicePrincipalsRequestBuilder ServicePrincipals { get; }
+```
+
+Accessed via: `graphClient.ServicePrincipals`
+
+## Operations
+
+### List Service Principals
+
+Retrieve all service principals.
+
+```csharp
+var servicePrincipals = await graphClient.ServicePrincipals.GetAsync();
+
+foreach (var sp in servicePrincipals.Value)
+{
+    Console.WriteLine($"{sp.DisplayName}");
+    Console.WriteLine($"  App ID: {sp.AppId}");
+    Console.WriteLine($"  Object ID: {sp.Id}");
+    Console.WriteLine($"  Type: {sp.ServicePrincipalType}");
+}
+
+// Filter service principals
+var filteredSps = await graphClient.ServicePrincipals.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "displayName eq 'Microsoft Graph'";
+    config.QueryParameters.Select = new[] { "id", "appId", "displayName" };
+});
+```
+
+### Get Service Principal by ID
+
+```csharp
+// By object ID
+var sp = await graphClient.ServicePrincipals["object-id"].GetAsync();
+
+// By app ID (alternate key)
+var sp = await graphClient.ServicePrincipalsWithAppId("app-id").GetAsync();
+
+Console.WriteLine($"Display Name: {sp.DisplayName}");
+Console.WriteLine($"Homepage: {sp.Homepage}");
+```
+
+### Create Service Principal
+
+Create a service principal for an existing application.
+
+```csharp
+var newSp = new ServicePrincipal
+{
+    AppId = "app-id-from-application",
+    AccountEnabled = true,
+    DisplayName = "My Service Principal",
+    Tags = new[] { "WindowsAzureActiveDirectoryIntegratedApp" }
+};
+
+var sp = await graphClient.ServicePrincipals.PostAsync(newSp);
+Console.WriteLine($"Created SP: {sp.Id}");
+```
+
+### Update Service Principal
+
+```csharp
+var updateSp = new ServicePrincipal
+{
+    AccountEnabled = false,
+    Notes = "Disabled for maintenance"
+};
+
+await graphClient.ServicePrincipals["object-id"].PatchAsync(updateSp);
+```
+
+### Delete Service Principal
+
+```csharp
+await graphClient.ServicePrincipals["object-id"].DeleteAsync();
+```
+
+## App Role Assignments
+
+### List App Role Assignments
+
+```csharp
+var assignments = await graphClient.ServicePrincipals["object-id"]
+    .AppRoleAssignments
+    .GetAsync();
+
+foreach (var assignment in assignments.Value)
+{
+    Console.WriteLine($"Principal: {assignment.PrincipalDisplayName}");
+    Console.WriteLine($"Resource: {assignment.ResourceDisplayName}");
+    Console.WriteLine($"Role: {assignment.AppRoleId}");
+}
+```
+
+### Assign App Role to User
+
+```csharp
+var assignment = new AppRoleAssignment
+{
+    PrincipalId = Guid.Parse("user-id"),
+    ResourceId = Guid.Parse("service-principal-id"),
+    AppRoleId = Guid.Parse("role-id") // Use Guid.Empty for default access
+};
+
+await graphClient.ServicePrincipals["sp-object-id"]
+    .AppRoleAssignments
+    .PostAsync(assignment);
+```
+
+### Assign App Role to Group
+
+```csharp
+var groupAssignment = new AppRoleAssignment
+{
+    PrincipalId = Guid.Parse("group-id"),
+    ResourceId = Guid.Parse("service-principal-id"),
+    AppRoleId = Guid.Parse("role-id")
+};
+
+await graphClient.ServicePrincipals["sp-object-id"]
+    .AppRoleAssignments
+    .PostAsync(groupAssignment);
+```
+
+### Remove App Role Assignment
+
+```csharp
+await graphClient.ServicePrincipals["sp-object-id"]
+    .AppRoleAssignments["assignment-id"]
+    .DeleteAsync();
+```
+
+## App Role Assigned To
+
+List assignments where this service principal is the resource.
+
+```csharp
+var assignedTo = await graphClient.ServicePrincipals["object-id"]
+    .AppRoleAssignedTo
+    .GetAsync();
+
+foreach (var assignment in assignedTo.Value)
+{
+    Console.WriteLine($"{assignment.PrincipalDisplayName} has role {assignment.AppRoleId}");
+}
+```
+
+## OAuth2 Permission Grants
+
+### List Permission Grants
+
+```csharp
+var grants = await graphClient.ServicePrincipals["object-id"]
+    .Oauth2PermissionGrants
+    .GetAsync();
+
+foreach (var grant in grants.Value)
+{
+    Console.WriteLine($"Client: {grant.ClientId}");
+    Console.WriteLine($"Resource: {grant.ResourceId}");
+    Console.WriteLine($"Scope: {grant.Scope}");
+    Console.WriteLine($"Type: {grant.ConsentType}");
+}
+```
+
+## Owners
+
+### List Owners
+
+```csharp
+var owners = await graphClient.ServicePrincipals["object-id"].Owners.GetAsync();
+
+foreach (var owner in owners.Value)
+{
+    if (owner is User user)
+    {
+        Console.WriteLine($"Owner: {user.DisplayName}");
+    }
+}
+```
+
+### Add Owner
+
+```csharp
+var ownerRef = new ReferenceCreate
+{
+    OdataId = $"https://graph.microsoft.com/v1.0/users/{userId}"
+};
+
+await graphClient.ServicePrincipals["object-id"].Owners.Ref.PostAsync(ownerRef);
+```
+
+## Member Of
+
+List groups and directory roles the service principal is a member of.
+
+```csharp
+var memberOf = await graphClient.ServicePrincipals["object-id"].MemberOf.GetAsync();
+
+foreach (var obj in memberOf.Value)
+{
+    if (obj is Group group)
+    {
+        Console.WriteLine($"Group: {group.DisplayName}");
+    }
+    else if (obj is DirectoryRole role)
+    {
+        Console.WriteLine($"Role: {role.DisplayName}");
+    }
+}
+```
+
+## Delegated Permission Classifications
+
+### List Permission Classifications
+
+```csharp
+var classifications = await graphClient.ServicePrincipals["object-id"]
+    .DelegatedPermissionClassifications
+    .GetAsync();
+
+foreach (var classification in classifications.Value)
+{
+    Console.WriteLine($"{classification.PermissionName}: {classification.Classification}");
+}
+```
+
+### Create Permission Classification
+
+```csharp
+var classification = new DelegatedPermissionClassification
+{
+    PermissionId = "permission-id",
+    PermissionName = "User.Read",
+    Classification = PermissionClassificationType.Low
+};
+
+await graphClient.ServicePrincipals["object-id"]
+    .DelegatedPermissionClassifications
+    .PostAsync(classification);
+```
+
+## Endpoints
+
+### List Endpoints
+
+```csharp
+var endpoints = await graphClient.ServicePrincipals["object-id"].Endpoints.GetAsync();
+
+foreach (var endpoint in endpoints.Value)
+{
+    Console.WriteLine($"{endpoint.ProviderName}: {endpoint.Uri}");
+}
+```
+
+## Created Objects
+
+List directory objects created by this service principal.
+
+```csharp
+var createdObjects = await graphClient.ServicePrincipals["object-id"]
+    .CreatedObjects
+    .GetAsync();
+```
+
+## Owned Objects
+
+List directory objects owned by this service principal.
+
+```csharp
+var ownedObjects = await graphClient.ServicePrincipals["object-id"]
+    .OwnedObjects
+    .GetAsync();
+```
+
+## Certificates and Secrets
+
+### Add Password (Client Secret)
+
+```csharp
+var passwordCredential = new AddPasswordPostRequestBody
+{
+    PasswordCredential = new PasswordCredential
+    {
+        DisplayName = "App Secret",
+        EndDateTime = DateTime.UtcNow.AddMonths(6)
+    }
+};
+
+var credential = await graphClient.ServicePrincipals["object-id"]
+    .AddPassword
+    .PostAsync(passwordCredential);
+
+Console.WriteLine($"Secret: {credential.SecretText}");
+// Store securely - only shown once
+```
+
+### Remove Password
+
+```csharp
+var removePassword = new RemovePasswordPostRequestBody
+{
+    KeyId = Guid.Parse("key-id")
+};
+
+await graphClient.ServicePrincipals["object-id"]
+    .RemovePassword
+    .PostAsync(removePassword);
+```
+
+### Add Certificate
+
+```csharp
+using System.Security.Cryptography.X509Certificates;
+
+var certificate = new X509Certificate2("cert.pfx", "password");
+
+var keyCredential = new AddKeyPostRequestBody
+{
+    KeyCredential = new KeyCredential
+    {
+        Type = "AsymmetricX509Cert",
+        Usage = "Verify",
+        Key = certificate.RawData,
+        DisplayName = "Service Principal Certificate"
+    },
+    PasswordCredential = null,
+    Proof = "proof-token"
+};
+
+await graphClient.ServicePrincipals["object-id"]
+    .AddKey
+    .PostAsync(keyCredential);
+```
+
+## Token Signing Certificates
+
+### Add Token Signing Certificate
+
+```csharp
+var tokenSigningCertificate = new AddTokenSigningCertificatePostRequestBody
+{
+    DisplayName = "CN=MyApp",
+    EndDateTime = DateTime.UtcNow.AddYears(1)
+};
+
+var cert = await graphClient.ServicePrincipals["object-id"]
+    .AddTokenSigningCertificate
+    .PostAsync(tokenSigningCertificate);
+
+Console.WriteLine($"Thumbprint: {cert.Thumbprint}");
+Console.WriteLine($"Key: {cert.Key}");
+```
+
+## Synchronization
+
+### Get Synchronization
+
+```csharp
+var sync = await graphClient.ServicePrincipals["object-id"]
+    .Synchronization
+    .GetAsync();
+```
+
+### List Synchronization Jobs
+
+```csharp
+var jobs = await graphClient.ServicePrincipals["object-id"]
+    .Synchronization
+    .Jobs
+    .GetAsync();
+
+foreach (var job in jobs.Value)
+{
+    Console.WriteLine($"Job: {job.Id}");
+    Console.WriteLine($"Status: {job.Status.State}");
+}
+```
+
+## Remote Desktop Security Configuration
+
+### Get Remote Desktop Configuration
+
+```csharp
+var rdConfig = await graphClient.ServicePrincipals["object-id"]
+    .RemoteDesktopSecurityConfiguration
+    .GetAsync();
+```
+
+## Common Scenarios
+
+### Find Service Principal for Application
+
+```csharp
+var servicePrincipals = await graphClient.ServicePrincipals.GetAsync(config =>
+{
+    config.QueryParameters.Filter = $"appId eq '{applicationAppId}'";
+});
+
+var sp = servicePrincipals.Value.FirstOrDefault();
+```
+
+### Grant Admin Consent
+
+```csharp
+// Create OAuth2 permission grant
+var grant = new OAuth2PermissionGrant
+{
+    ClientId = "service-principal-id",
+    ConsentType = "AllPrincipals", // Admin consent
+    PrincipalId = null,
+    ResourceId = "resource-sp-id",
+    Scope = "User.Read.All Directory.Read.All"
+};
+
+await graphClient.Oauth2PermissionGrants.PostAsync(grant);
+```
+
+### Assign Application to User
+
+```csharp
+// Assign default access
+var assignment = new AppRoleAssignment
+{
+    PrincipalId = Guid.Parse("user-id"),
+    ResourceId = Guid.Parse("sp-id"),
+    AppRoleId = Guid.Empty // Default access
+};
+
+await graphClient.Users["user-id"]
+    .AppRoleAssignments
+    .PostAsync(assignment);
+```
+
+## Delta Query
+
+```csharp
+var delta = await graphClient.ServicePrincipals.Delta.GetAsync();
+
+foreach (var sp in delta.Value)
+{
+    Console.WriteLine($"Changed: {sp.DisplayName}");
+}
+
+var deltaLink = delta.OdataDeltaLink;
+```
+
+## Error Handling
+
+```csharp
+using Microsoft.Graph.Models.ODataErrors;
+
+try
+{
+    var sp = await graphClient.ServicePrincipals["object-id"].GetAsync();
+}
+catch (ODataError error)
+{
+    if (error.Error.Code == "Request_ResourceNotFound")
+    {
+        Console.WriteLine("Service principal not found");
+    }
+    else
+    {
+        Console.WriteLine($"Error: {error.Error.Message}");
+    }
+}
+```
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Service Principal Model" href="https://learn.microsoft.com/graph/api/resources/serviceprincipal" icon="cogs">
+    Service principal properties
+  </Card>
+  <Card title="Applications" href="/api-reference/applications" icon="window-maximize">
+    Application registration management
+  </Card>
+  <Card title="OAuth2 Permission Grants" href="/api-reference/oauth2-permission-grants" icon="key">
+    Delegated permission grants
+  </Card>
+  <Card title="App Roles" href="https://learn.microsoft.com/graph/api/resources/approle" icon="shield">
+    App role assignments
+  </Card>
+</CardGroup>

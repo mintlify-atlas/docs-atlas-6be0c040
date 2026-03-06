@@ -1,0 +1,621 @@
+---
+title: Working with Mail
+description: Learn how to send, receive, and manage email using Microsoft Graph .NET SDK
+---
+
+This guide covers common mail operations including sending messages, reading mail, managing folders, and working with attachments.
+
+## Getting Started
+
+```csharp
+using Microsoft.Graph;
+using Microsoft.Graph.Models;
+using Microsoft.Graph.Me.SendMail;
+
+var graphClient = new GraphServiceClient(authProvider);
+```
+
+## Sending Mail
+
+### Send a Simple Email
+
+<Steps>
+  <Step title="Create the message">
+    ```csharp
+    var message = new Message
+    {
+        Subject = "Hello from Microsoft Graph",
+        Body = new ItemBody
+        {
+            ContentType = BodyType.Text,
+            Content = "This is a test email sent using the Microsoft Graph .NET SDK."
+        },
+        ToRecipients = new List<Recipient>
+        {
+            new Recipient
+            {
+                EmailAddress = new EmailAddress
+                {
+                    Address = "user@example.com"
+                }
+            }
+        }
+    };
+    ```
+  </Step>
+
+  <Step title="Send the message">
+    ```csharp
+    var requestBody = new SendMailPostRequestBody
+    {
+        Message = message,
+        SaveToSentItems = true
+    };
+
+    await graphClient.Me.SendMail
+        .PostAsync(requestBody);
+    ```
+  </Step>
+</Steps>
+
+### Send HTML Email
+
+```csharp
+var message = new Message
+{
+    Subject = "HTML Email",
+    Body = new ItemBody
+    {
+        ContentType = BodyType.Html,
+        Content = @"
+            <html>
+                <body>
+                    <h1>Welcome!</h1>
+                    <p>This is an <strong>HTML</strong> email.</p>
+                </body>
+            </html>"
+    },
+    ToRecipients = new List<Recipient>
+    {
+        new Recipient
+        {
+            EmailAddress = new EmailAddress
+            {
+                Address = "user@example.com",
+                Name = "John Doe"
+            }
+        }
+    }
+};
+
+var requestBody = new SendMailPostRequestBody
+{
+    Message = message,
+    SaveToSentItems = true
+};
+
+await graphClient.Me.SendMail
+    .PostAsync(requestBody);
+```
+
+### Send Email with CC and BCC
+
+```csharp
+var message = new Message
+{
+    Subject = "Project Update",
+    Body = new ItemBody
+    {
+        ContentType = BodyType.Text,
+        Content = "Here's the latest update on the project."
+    },
+    ToRecipients = new List<Recipient>
+    {
+        new Recipient
+        {
+            EmailAddress = new EmailAddress { Address = "primary@example.com" }
+        }
+    },
+    CcRecipients = new List<Recipient>
+    {
+        new Recipient
+        {
+            EmailAddress = new EmailAddress { Address = "cc1@example.com" }
+        },
+        new Recipient
+        {
+            EmailAddress = new EmailAddress { Address = "cc2@example.com" }
+        }
+    },
+    BccRecipients = new List<Recipient>
+    {
+        new Recipient
+        {
+            EmailAddress = new EmailAddress { Address = "bcc@example.com" }
+        }
+    },
+    Importance = Importance.High
+};
+
+var requestBody = new SendMailPostRequestBody
+{
+    Message = message,
+    SaveToSentItems = true
+};
+
+await graphClient.Me.SendMail
+    .PostAsync(requestBody);
+```
+
+## Sending Mail with Attachments
+
+### Add File Attachment
+
+```csharp
+var message = new Message
+{
+    Subject = "Document for Review",
+    Body = new ItemBody
+    {
+        ContentType = BodyType.Text,
+        Content = "Please review the attached document."
+    },
+    ToRecipients = new List<Recipient>
+    {
+        new Recipient
+        {
+            EmailAddress = new EmailAddress { Address = "user@example.com" }
+        }
+    },
+    Attachments = new List<Attachment>
+    {
+        new FileAttachment
+        {
+            Name = "report.pdf",
+            ContentType = "application/pdf",
+            ContentBytes = File.ReadAllBytes("path/to/report.pdf")
+        }
+    }
+};
+
+var requestBody = new SendMailPostRequestBody
+{
+    Message = message,
+    SaveToSentItems = true
+};
+
+await graphClient.Me.SendMail
+    .PostAsync(requestBody);
+```
+
+### Add Multiple Attachments
+
+```csharp
+var attachments = new List<Attachment>
+{
+    new FileAttachment
+    {
+        Name = "document.docx",
+        ContentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ContentBytes = File.ReadAllBytes("document.docx")
+    },
+    new FileAttachment
+    {
+        Name = "spreadsheet.xlsx",
+        ContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ContentBytes = File.ReadAllBytes("spreadsheet.xlsx")
+    }
+};
+
+var message = new Message
+{
+    Subject = "Multiple Files",
+    Body = new ItemBody
+    {
+        ContentType = BodyType.Text,
+        Content = "Please find the attached files."
+    },
+    ToRecipients = new List<Recipient>
+    {
+        new Recipient
+        {
+            EmailAddress = new EmailAddress { Address = "user@example.com" }
+        }
+    },
+    Attachments = attachments
+};
+
+var requestBody = new SendMailPostRequestBody
+{
+    Message = message,
+    SaveToSentItems = true
+};
+
+await graphClient.Me.SendMail
+    .PostAsync(requestBody);
+```
+
+## Reading Mail
+
+### List Messages in Inbox
+
+```csharp
+var messages = await graphClient.Me.Messages
+    .GetAsync(requestConfiguration =>
+    {
+        requestConfiguration.QueryParameters.Top = 25;
+        requestConfiguration.QueryParameters.Orderby = new[] { "receivedDateTime DESC" };
+        requestConfiguration.QueryParameters.Select = new[] 
+        { 
+            "subject", 
+            "from", 
+            "receivedDateTime",
+            "isRead"
+        };
+    });
+
+foreach (var message in messages.Value)
+{
+    Console.WriteLine($"{message.Subject} - {message.ReceivedDateTime}");
+}
+```
+
+### Filter Messages
+
+<CodeGroup>
+```csharp Unread Messages
+var unreadMessages = await graphClient.Me.Messages
+    .GetAsync(requestConfiguration =>
+    {
+        requestConfiguration.QueryParameters.Filter = "isRead eq false";
+    });
+```
+
+```csharp From Specific Sender
+var messages = await graphClient.Me.Messages
+    .GetAsync(requestConfiguration =>
+    {
+        requestConfiguration.QueryParameters.Filter = 
+            "from/emailAddress/address eq 'sender@example.com'";
+    });
+```
+
+```csharp Recent Important Messages
+var messages = await graphClient.Me.Messages
+    .GetAsync(requestConfiguration =>
+    {
+        requestConfiguration.QueryParameters.Filter = 
+            "importance eq 'high' and receivedDateTime ge 2024-01-01";
+    });
+```
+</CodeGroup>
+
+### Get a Single Message
+
+```csharp
+var message = await graphClient.Me.Messages["message-id"]
+    .GetAsync();
+
+Console.WriteLine($"Subject: {message.Subject}");
+Console.WriteLine($"From: {message.From.EmailAddress.Address}");
+Console.WriteLine($"Body: {message.Body.Content}");
+```
+
+## Managing Messages
+
+### Mark as Read/Unread
+
+```csharp
+var messageUpdate = new Message
+{
+    IsRead = true
+};
+
+await graphClient.Me.Messages["message-id"]
+    .PatchAsync(messageUpdate);
+```
+
+### Delete a Message
+
+```csharp
+await graphClient.Me.Messages["message-id"]
+    .DeleteAsync();
+```
+
+### Move Message to Folder
+
+```csharp
+var movePostBody = new MovePostRequestBody
+{
+    DestinationId = "folder-id"
+};
+
+await graphClient.Me.Messages["message-id"]
+    .Move
+    .PostAsync(movePostBody);
+```
+
+### Reply to Message
+
+<Steps>
+  <Step title="Create reply">
+    ```csharp
+    var reply = await graphClient.Me.Messages["message-id"]
+        .CreateReply
+        .PostAsync();
+    ```
+  </Step>
+
+  <Step title="Update reply content">
+    ```csharp
+    var replyUpdate = new Message
+    {
+        Body = new ItemBody
+        {
+            ContentType = BodyType.Text,
+            Content = "Thank you for your message. I'll get back to you soon."
+        }
+    };
+
+    await graphClient.Me.Messages[reply.Id]
+        .PatchAsync(replyUpdate);
+    ```
+  </Step>
+
+  <Step title="Send the reply">
+    ```csharp
+    await graphClient.Me.Messages[reply.Id]
+        .Send
+        .PostAsync();
+    ```
+  </Step>
+</Steps>
+
+### Forward Message
+
+```csharp
+var forwardPostBody = new ForwardPostRequestBody
+{
+    Comment = "FYI - please review this.",
+    ToRecipients = new List<Recipient>
+    {
+        new Recipient
+        {
+            EmailAddress = new EmailAddress
+            {
+                Address = "recipient@example.com"
+            }
+        }
+    }
+};
+
+await graphClient.Me.Messages["message-id"]
+    .Forward
+    .PostAsync(forwardPostBody);
+```
+
+## Working with Mail Folders
+
+### List All Folders
+
+```csharp
+var folders = await graphClient.Me.MailFolders
+    .GetAsync();
+
+foreach (var folder in folders.Value)
+{
+    Console.WriteLine($"{folder.DisplayName} ({folder.UnreadItemCount} unread)");
+}
+```
+
+### Create a Custom Folder
+
+```csharp
+var newFolder = new MailFolder
+{
+    DisplayName = "Project Alpha"
+};
+
+var createdFolder = await graphClient.Me.MailFolders
+    .PostAsync(newFolder);
+```
+
+### Get Messages from Specific Folder
+
+```csharp
+var messages = await graphClient.Me.MailFolders["folder-id"]
+    .Messages
+    .GetAsync();
+```
+
+## Working with Attachments
+
+### List Message Attachments
+
+```csharp
+var attachments = await graphClient.Me.Messages["message-id"]
+    .Attachments
+    .GetAsync();
+
+foreach (var attachment in attachments.Value)
+{
+    if (attachment is FileAttachment fileAttachment)
+    {
+        Console.WriteLine($"File: {fileAttachment.Name}");
+        Console.WriteLine($"Size: {fileAttachment.Size} bytes");
+    }
+}
+```
+
+### Download Attachment
+
+```csharp
+var attachment = await graphClient.Me.Messages["message-id"]
+    .Attachments["attachment-id"]
+    .GetAsync();
+
+if (attachment is FileAttachment fileAttachment)
+{
+    var fileBytes = fileAttachment.ContentBytes;
+    await File.WriteAllBytesAsync(fileAttachment.Name, fileBytes);
+    Console.WriteLine($"Downloaded: {fileAttachment.Name}");
+}
+```
+
+## Complete Example
+
+```csharp
+using Microsoft.Graph;
+using Microsoft.Graph.Models;
+using Microsoft.Graph.Models.ODataErrors;
+
+public class MailManager
+{
+    private readonly GraphServiceClient _graphClient;
+
+    public MailManager(GraphServiceClient graphClient)
+    {
+        _graphClient = graphClient;
+    }
+
+    public async Task SendEmailWithRetryAsync(
+        string to,
+        string subject,
+        string body,
+        List<string> attachmentPaths = null)
+    {
+        var message = new Message
+        {
+            Subject = subject,
+            Body = new ItemBody
+            {
+                ContentType = BodyType.Html,
+                Content = body
+            },
+            ToRecipients = new List<Recipient>
+            {
+                new Recipient
+                {
+                    EmailAddress = new EmailAddress { Address = to }
+                }
+            }
+        };
+
+        // Add attachments if provided
+        if (attachmentPaths?.Any() == true)
+        {
+            message.Attachments = new List<Attachment>();
+            
+            foreach (var path in attachmentPaths)
+            {
+                var fileName = Path.GetFileName(path);
+                var contentBytes = await File.ReadAllBytesAsync(path);
+                
+                message.Attachments.Add(new FileAttachment
+                {
+                    Name = fileName,
+                    ContentBytes = contentBytes
+                });
+            }
+        }
+
+        var requestBody = new SendMailPostRequestBody
+        {
+            Message = message,
+            SaveToSentItems = true
+        };
+
+        try
+        {
+            await _graphClient.Me.SendMail
+                .PostAsync(requestBody);
+            
+            Console.WriteLine("Email sent successfully!");
+        }
+        catch (ODataError error)
+        {
+            Console.WriteLine($"Failed to send email: {error.Error.Message}");
+            throw;
+        }
+    }
+
+    public async Task ProcessUnreadEmailsAsync()
+    {
+        var messages = await _graphClient.Me.Messages
+            .GetAsync(config =>
+            {
+                config.QueryParameters.Filter = "isRead eq false";
+                config.QueryParameters.Top = 50;
+                config.QueryParameters.Orderby = new[] { "receivedDateTime DESC" };
+            });
+
+        foreach (var message in messages.Value)
+        {
+            Console.WriteLine($"Processing: {message.Subject}");
+            
+            // Mark as read
+            var update = new Message { IsRead = true };
+            await _graphClient.Me.Messages[message.Id]
+                .PatchAsync(update);
+
+            // Download attachments
+            var attachments = await _graphClient.Me.Messages[message.Id]
+                .Attachments
+                .GetAsync();
+
+            foreach (var attachment in attachments.Value)
+            {
+                if (attachment is FileAttachment fileAttachment)
+                {
+                    await File.WriteAllBytesAsync(
+                        Path.Combine("downloads", fileAttachment.Name),
+                        fileAttachment.ContentBytes
+                    );
+                }
+            }
+        }
+    }
+
+    public async Task<MailFolder> CreateAndOrganizeFolderAsync(
+        string folderName,
+        string fromAddress)
+    {
+        // Create folder
+        var newFolder = new MailFolder
+        {
+            DisplayName = folderName
+        };
+
+        var folder = await _graphClient.Me.MailFolders
+            .PostAsync(newFolder);
+
+        // Move messages from specific sender to new folder
+        var messages = await _graphClient.Me.Messages
+            .GetAsync(config =>
+            {
+                config.QueryParameters.Filter = 
+                    $"from/emailAddress/address eq '{fromAddress}'";
+            });
+
+        foreach (var message in messages.Value)
+        {
+            var moveBody = new MovePostRequestBody
+            {
+                DestinationId = folder.Id
+            };
+
+            await _graphClient.Me.Messages[message.Id]
+                .Move
+                .PostAsync(moveBody);
+        }
+
+        return folder;
+    }
+}
+```
+
+## Next Steps
+
+- [Large File Upload](/guides/large-file-upload) - Upload large attachments
+- [Working with Calendar](/guides/working-with-calendar) - Manage meeting invitations
+- [API Reference](/api-reference/messages) - Complete Messages API reference

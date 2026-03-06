@@ -1,0 +1,582 @@
+---
+title: 'Channels'
+description: 'Microsoft Teams channel operations in Microsoft Graph'
+---
+
+## Overview
+
+The Channels API provides operations to manage channels within Microsoft Teams. Access through `graphClient.Teams[teamId].Channels`.
+
+## Request Builder
+
+```csharp
+public ChannelsRequestBuilder Channels { get; }
+```
+
+Accessed via: `graphClient.Teams["team-id"].Channels`
+
+## Operations
+
+### List Channels
+
+Retrieve all channels in a team.
+
+```csharp
+var channels = await graphClient.Teams["team-id"].Channels.GetAsync();
+
+foreach (var channel in channels.Value)
+{
+    Console.WriteLine($"{channel.DisplayName}");
+    Console.WriteLine($"  Description: {channel.Description}");
+    Console.WriteLine($"  Type: {channel.MembershipType}");
+    Console.WriteLine($"  Web URL: {channel.WebUrl}");
+}
+```
+
+### Get Channel by ID
+
+```csharp
+var channel = await graphClient.Teams["team-id"]
+    .Channels["channel-id"]
+    .GetAsync();
+
+Console.WriteLine($"Channel: {channel.DisplayName}");
+```
+
+### Get Primary Channel
+
+```csharp
+var primaryChannel = await graphClient.Teams["team-id"]
+    .PrimaryChannel
+    .GetAsync();
+
+Console.WriteLine($"Primary channel: {primaryChannel.DisplayName}");
+```
+
+### Create Channel
+
+```csharp
+// Standard channel
+var newChannel = new Channel
+{
+    DisplayName = "Project Updates",
+    Description = "Channel for project status updates",
+    MembershipType = ChannelMembershipType.Standard
+};
+
+var channel = await graphClient.Teams["team-id"]
+    .Channels
+    .PostAsync(newChannel);
+
+// Private channel
+var privateChannel = new Channel
+{
+    DisplayName = "Leadership",
+    Description = "Private channel for leadership team",
+    MembershipType = ChannelMembershipType.Private,
+    Members = new List<ConversationMember>
+    {
+        new AadUserConversationMember
+        {
+            Roles = new List<string> { "owner" },
+            AdditionalData = new Dictionary<string, object>
+            {
+                {
+                    "user@odata.bind",
+                    $"https://graph.microsoft.com/v1.0/users/{userId}"
+                }
+            }
+        }
+    }
+};
+
+var channel = await graphClient.Teams["team-id"]
+    .Channels
+    .PostAsync(privateChannel);
+```
+
+### Update Channel
+
+```csharp
+var updateChannel = new Channel
+{
+    DisplayName = "Updated Channel Name",
+    Description = "Updated description"
+};
+
+await graphClient.Teams["team-id"]
+    .Channels["channel-id"]
+    .PatchAsync(updateChannel);
+```
+
+### Delete Channel
+
+```csharp
+await graphClient.Teams["team-id"]
+    .Channels["channel-id"]
+    .DeleteAsync();
+```
+
+## Messages
+
+### List Messages
+
+```csharp
+var messages = await graphClient.Teams["team-id"]
+    .Channels["channel-id"]
+    .Messages
+    .GetAsync();
+
+foreach (var message in messages.Value)
+{
+    Console.WriteLine($"{message.From.User.DisplayName}: {message.Body.Content}");
+    Console.WriteLine($"Created: {message.CreatedDateTime}");
+}
+```
+
+### Send Message
+
+```csharp
+var newMessage = new ChatMessage
+{
+    Body = new ItemBody
+    {
+        ContentType = BodyType.Html,
+        Content = "<p>Hello team! <at id='0'>John</at></p>"
+    },
+    Mentions = new List<ChatMessageMention>
+    {
+        new ChatMessageMention
+        {
+            Id = 0,
+            MentionText = "John",
+            Mentioned = new ChatMessageMentionedIdentitySet
+            {
+                User = new TeamworkUserIdentity
+                {
+                    Id = "user-id",
+                    DisplayName = "John Doe"
+                }
+            }
+        }
+    }
+};
+
+var message = await graphClient.Teams["team-id"]
+    .Channels["channel-id"]
+    .Messages
+    .PostAsync(newMessage);
+```
+
+### Reply to Message
+
+```csharp
+var reply = new ChatMessage
+{
+    Body = new ItemBody
+    {
+        ContentType = BodyType.Text,
+        Content = "Thanks for the update!"
+    }
+};
+
+await graphClient.Teams["team-id"]
+    .Channels["channel-id"]
+    .Messages["message-id"]
+    .Replies
+    .PostAsync(reply);
+```
+
+### Get Message with Replies
+
+```csharp
+var message = await graphClient.Teams["team-id"]
+    .Channels["channel-id"]
+    .Messages["message-id"]
+    .GetAsync(config =>
+{
+    config.QueryParameters.Expand = new[] { "replies" };
+});
+```
+
+### Update Message
+
+```csharp
+var updateMessage = new ChatMessage
+{
+    Body = new ItemBody
+    {
+        ContentType = BodyType.Html,
+        Content = "<p>Updated message content</p>"
+    }
+};
+
+await graphClient.Teams["team-id"]
+    .Channels["channel-id"]
+    .Messages["message-id"]
+    .PatchAsync(updateMessage);
+```
+
+### Delete Message (Soft Delete)
+
+```csharp
+await graphClient.Teams["team-id"]
+    .Channels["channel-id"]
+    .Messages["message-id"]
+    .SoftDelete
+    .PostAsync();
+```
+
+## Members (Private Channels)
+
+### List Channel Members
+
+```csharp
+var members = await graphClient.Teams["team-id"]
+    .Channels["channel-id"]
+    .Members
+    .GetAsync();
+
+foreach (var member in members.Value)
+{
+    if (member is AadUserConversationMember userMember)
+    {
+        Console.WriteLine($"{userMember.DisplayName} - Roles: {string.Join(", ", userMember.Roles)}");
+    }
+}
+```
+
+### Add Channel Member
+
+```csharp
+var newMember = new AadUserConversationMember
+{
+    Roles = new List<string>(), // Empty for member, ["owner"] for owner
+    AdditionalData = new Dictionary<string, object>
+    {
+        {
+            "user@odata.bind",
+            $"https://graph.microsoft.com/v1.0/users/{userId}"
+        }
+    }
+};
+
+await graphClient.Teams["team-id"]
+    .Channels["channel-id"]
+    .Members
+    .PostAsync(newMember);
+```
+
+### Remove Channel Member
+
+```csharp
+await graphClient.Teams["team-id"]
+    .Channels["channel-id"]
+    .Members["membership-id"]
+    .DeleteAsync();
+```
+
+## Tabs
+
+### List Tabs
+
+```csharp
+var tabs = await graphClient.Teams["team-id"]
+    .Channels["channel-id"]
+    .Tabs
+    .GetAsync();
+
+foreach (var tab in tabs.Value)
+{
+    Console.WriteLine($"{tab.DisplayName} - {tab.WebUrl}");
+}
+```
+
+### Add Tab
+
+```csharp
+// Add website tab
+var websiteTab = new TeamsTab
+{
+    DisplayName = "Project Portal",
+    AdditionalData = new Dictionary<string, object>
+    {
+        {
+            "teamsApp@odata.bind",
+            "https://graph.microsoft.com/v1.0/appCatalogs/teamsApps/com.microsoft.teamspace.tab.web"
+        }
+    },
+    Configuration = new TeamsTabConfiguration
+    {
+        ContentUrl = "https://contoso.com/project",
+        WebsiteUrl = "https://contoso.com/project"
+    }
+};
+
+// Add OneNote tab
+var onenoteTab = new TeamsTab
+{
+    DisplayName = "Meeting Notes",
+    AdditionalData = new Dictionary<string, object>
+    {
+        {
+            "teamsApp@odata.bind",
+            "https://graph.microsoft.com/v1.0/appCatalogs/teamsApps/0d820ecd-def2-4297-adad-78056cde7c78"
+        }
+    },
+    Configuration = new TeamsTabConfiguration
+    {
+        EntityId = "notebook-id",
+        ContentUrl = "https://onenote.com/...",
+        WebsiteUrl = "https://onenote.com/..."
+    }
+};
+
+await graphClient.Teams["team-id"]
+    .Channels["channel-id"]
+    .Tabs
+    .PostAsync(websiteTab);
+```
+
+### Update Tab
+
+```csharp
+var updateTab = new TeamsTab
+{
+    DisplayName = "Updated Tab Name"
+};
+
+await graphClient.Teams["team-id"]
+    .Channels["channel-id"]
+    .Tabs["tab-id"]
+    .PatchAsync(updateTab);
+```
+
+### Remove Tab
+
+```csharp
+await graphClient.Teams["team-id"]
+    .Channels["channel-id"]
+    .Tabs["tab-id"]
+    .DeleteAsync();
+```
+
+## Files Folder
+
+Access SharePoint document library for channel files.
+
+```csharp
+// Get files folder
+var filesFolder = await graphClient.Teams["team-id"]
+    .Channels["channel-id"]
+    .FilesFolder
+    .GetAsync();
+
+Console.WriteLine($"Files URL: {filesFolder.WebUrl}");
+
+// List files
+var driveId = filesFolder.ParentReference.DriveId;
+var folderId = filesFolder.Id;
+
+var files = await graphClient.Drives[driveId]
+    .Items[folderId]
+    .Children
+    .GetAsync();
+
+foreach (var file in files.Value)
+{
+    Console.WriteLine($"{file.Name} - {file.Size} bytes");
+}
+```
+
+## Provision Email Address
+
+```csharp
+var result = await graphClient.Teams["team-id"]
+    .Channels["channel-id"]
+    .ProvisionEmail
+    .PostAsync();
+
+Console.WriteLine($"Email: {result.Email}");
+```
+
+## Remove Email Address
+
+```csharp
+await graphClient.Teams["team-id"]
+    .Channels["channel-id"]
+    .RemoveEmail
+    .PostAsync();
+```
+
+## Archive Channel
+
+```csharp
+await graphClient.Teams["team-id"]
+    .Channels["channel-id"]
+    .Archive
+    .PostAsync();
+```
+
+## Unarchive Channel
+
+```csharp
+await graphClient.Teams["team-id"]
+    .Channels["channel-id"]
+    .Unarchive
+    .PostAsync();
+```
+
+## Shared with Teams
+
+### List Shared Channels
+
+```csharp
+var sharedChannels = await graphClient.Teams["team-id"]
+    .Channels
+    .GetAsync(config =>
+{
+    config.QueryParameters.Filter = "membershipType eq 'shared'";
+});
+```
+
+## Hosted Content
+
+### Upload Image to Message
+
+```csharp
+// First upload hosted content
+var hostedContent = new ChatMessageHostedContent
+{
+    ContentBytes = imageBytes,
+    ContentType = "image/png"
+};
+
+var uploaded = await graphClient.Teams["team-id"]
+    .Channels["channel-id"]
+    .Messages["message-id"]
+    .HostedContents
+    .PostAsync(hostedContent);
+
+// Then reference in message
+var message = new ChatMessage
+{
+    Body = new ItemBody
+    {
+        ContentType = BodyType.Html,
+        Content = $"<div><img src='../hostedContents/{uploaded.Id}/$value'></div>"
+    }
+};
+```
+
+## Channel Types
+
+### Standard Channel
+- Visible to all team members
+- Maximum 200 standard channels per team
+
+### Private Channel  
+- Only visible to channel members
+- Maximum 30 private channels per team
+- Each private channel has its own SharePoint site
+
+### Shared Channel
+- Can be shared with people outside the team
+- Requires Azure AD B2B
+
+## Common Patterns
+
+### Send Formatted Message with Mentions
+
+```csharp
+var message = new ChatMessage
+{
+    Body = new ItemBody
+    {
+        ContentType = BodyType.Html,
+        Content = @"
+            <h1>Project Update</h1>
+            <p><at id='0'>John</at>, please review the latest changes.</p>
+            <ul>
+                <li>Feature complete</li>
+                <li>Testing in progress</li>
+            </ul>
+        "
+    },
+    Mentions = new List<ChatMessageMention>
+    {
+        new ChatMessageMention
+        {
+            Id = 0,
+            MentionText = "John",
+            Mentioned = new ChatMessageMentionedIdentitySet
+            {
+                User = new TeamworkUserIdentity
+                {
+                    Id = "user-id",
+                    DisplayName = "John Doe"
+                }
+            }
+        }
+    }
+};
+```
+
+### Monitor Channel for New Messages
+
+```csharp
+var lastCheck = DateTime.UtcNow.AddMinutes(-5);
+
+var messages = await graphClient.Teams["team-id"]
+    .Channels["channel-id"]
+    .Messages
+    .GetAsync(config =>
+{
+    config.QueryParameters.Filter = $"createdDateTime gt {lastCheck:yyyy-MM-ddTHH:mm:ssZ}";
+});
+```
+
+## Error Handling
+
+```csharp
+using Microsoft.Graph.Models.ODataErrors;
+
+try
+{
+    var channel = await graphClient.Teams["team-id"]
+        .Channels["channel-id"]
+        .GetAsync();
+}
+catch (ODataError error)
+{
+    if (error.Error.Code == "NotFound")
+    {
+        Console.WriteLine("Channel not found");
+    }
+    else if (error.Error.Code == "Forbidden")
+    {
+        Console.WriteLine("Access denied to channel");
+    }
+    else
+    {
+        Console.WriteLine($"Error: {error.Error.Message}");
+    }
+}
+```
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Channel Model" href="https://learn.microsoft.com/graph/api/resources/channel" icon="hashtag">
+    Channel resource properties
+  </Card>
+  <Card title="Teams API" href="/api-reference/teams" icon="microsoft">
+    Team operations
+  </Card>
+  <Card title="Chats API" href="/api-reference/chats" icon="comments">
+    Chat operations
+  </Card>
+  <Card title="Chat Messages" href="https://learn.microsoft.com/graph/api/resources/chatmessage" icon="message">
+    Message resource
+  </Card>
+</CardGroup>

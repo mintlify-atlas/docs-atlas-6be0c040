@@ -1,0 +1,507 @@
+---
+title: 'Calendar'
+description: 'Calendar operations in Microsoft Graph'
+---
+
+## Overview
+
+The Calendar API provides operations to manage user calendars. Access through `graphClient.Me.Calendar` or `graphClient.Users[userId].Calendar`.
+
+## Request Builders
+
+```csharp
+// Primary calendar for current user
+public CalendarRequestBuilder Calendar { get; }
+// Access: graphClient.Me.Calendar
+
+// Primary calendar for specific user
+public CalendarRequestBuilder Calendar { get; }
+// Access: graphClient.Users["user-id"].Calendar
+
+// Specific calendar
+public CalendarRequestBuilder Calendar { get; }
+// Access: graphClient.Me.Calendars["calendar-id"]
+```
+
+## Operations
+
+### Get Calendar
+
+Retrieve calendar properties.
+
+```csharp
+var calendar = await graphClient.Me.Calendar.GetAsync();
+
+Console.WriteLine($"Calendar: {calendar.Name}");
+Console.WriteLine($"Owner: {calendar.Owner.Name}");
+Console.WriteLine($"Can Edit: {calendar.CanEdit}");
+```
+
+**Response Properties:**
+
+<ResponseField name="id" type="string">
+  Calendar unique identifier
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Calendar display name
+</ResponseField>
+
+<ResponseField name="color" type="string">
+  Calendar color (e.g., "lightBlue", "lightGreen")
+</ResponseField>
+
+<ResponseField name="changeKey" type="string">
+  Version identifier for the calendar
+</ResponseField>
+
+<ResponseField name="canEdit" type="bool">
+  Whether the user can write to the calendar
+</ResponseField>
+
+<ResponseField name="canShare" type="bool">
+  Whether the user can share the calendar
+</ResponseField>
+
+<ResponseField name="canViewPrivateItems" type="bool">
+  Whether the user can see private items
+</ResponseField>
+
+<ResponseField name="owner" type="EmailAddress">
+  Calendar owner information
+</ResponseField>
+
+### Update Calendar
+
+Update calendar properties.
+
+```csharp
+var updateCalendar = new Calendar
+{
+    Name = "Work Calendar",
+    Color = CalendarColor.LightBlue
+};
+
+await graphClient.Me.Calendar.PatchAsync(updateCalendar);
+```
+
+## Calendar Collection
+
+### List Calendars
+
+Get all calendars for a user.
+
+```csharp
+var calendars = await graphClient.Me.Calendars.GetAsync();
+
+foreach (var calendar in calendars.Value)
+{
+    Console.WriteLine($"{calendar.Name} - Owner: {calendar.Owner.Name}");
+}
+```
+
+### Create Calendar
+
+Create a new calendar.
+
+```csharp
+var newCalendar = new Calendar
+{
+    Name = "Project Calendar",
+    Color = CalendarColor.LightGreen
+};
+
+var calendar = await graphClient.Me.Calendars.PostAsync(newCalendar);
+Console.WriteLine($"Created calendar: {calendar.Id}");
+```
+
+### Delete Calendar
+
+Delete a calendar (except the default calendar).
+
+```csharp
+await graphClient.Me.Calendars["calendar-id"].DeleteAsync();
+```
+
+## Calendar Events
+
+### List Events
+
+Get events from a calendar.
+
+```csharp
+var events = await graphClient.Me.Calendar.Events.GetAsync();
+
+foreach (var evt in events.Value)
+{
+    Console.WriteLine($"{evt.Subject} - {evt.Start.DateTime}");
+}
+
+// Filter events by date range
+var upcomingEvents = await graphClient.Me.Calendar.Events.GetAsync(config =>
+{
+    config.QueryParameters.Filter = $"start/dateTime ge '{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ssZ}'";
+    config.QueryParameters.Orderby = new[] { "start/dateTime" };
+    config.QueryParameters.Top = 10;
+});
+```
+
+### Create Event
+
+Create a new calendar event.
+
+```csharp
+var newEvent = new Event
+{
+    Subject = "Team Meeting",
+    Body = new ItemBody
+    {
+        ContentType = BodyType.Html,
+        Content = "<h1>Agenda</h1><ul><li>Project updates</li></ul>"
+    },
+    Start = new DateTimeTimeZone
+    {
+        DateTime = "2024-03-15T14:00:00",
+        TimeZone = "Pacific Standard Time"
+    },
+    End = new DateTimeTimeZone
+    {
+        DateTime = "2024-03-15T15:00:00",
+        TimeZone = "Pacific Standard Time"
+    },
+    Location = new Location
+    {
+        DisplayName = "Conference Room A"
+    },
+    Attendees = new List<Attendee>
+    {
+        new Attendee
+        {
+            EmailAddress = new EmailAddress
+            {
+                Address = "john@contoso.com",
+                Name = "John Doe"
+            },
+            Type = AttendeeType.Required
+        },
+        new Attendee
+        {
+            EmailAddress = new EmailAddress
+            {
+                Address = "jane@contoso.com",
+                Name = "Jane Smith"
+            },
+            Type = AttendeeType.Optional
+        }
+    },
+    IsReminderOn = true,
+    ReminderMinutesBeforeStart = 15
+};
+
+var evt = await graphClient.Me.Calendar.Events.PostAsync(newEvent);
+Console.WriteLine($"Event created: {evt.Id}");
+```
+
+## Calendar View
+
+Get calendar view for a date range (returns instances of recurring events).
+
+```csharp
+var startDate = DateTime.UtcNow;
+var endDate = startDate.AddDays(7);
+
+var calendarView = await graphClient.Me.Calendar.CalendarView.GetAsync(config =>
+{
+    config.QueryParameters.StartDateTime = startDate.ToString("yyyy-MM-ddTHH:mm:ssZ");
+    config.QueryParameters.EndDateTime = endDate.ToString("yyyy-MM-ddTHH:mm:ssZ");
+    config.QueryParameters.Orderby = new[] { "start/dateTime" };
+});
+
+foreach (var evt in calendarView.Value)
+{
+    Console.WriteLine($"{evt.Subject}");
+    Console.WriteLine($"  Start: {evt.Start.DateTime}");
+    Console.WriteLine($"  Recurrence: {evt.Type}"); // SingleInstance, Occurrence, Exception
+}
+```
+
+**Query Parameters:**
+
+<ParamField path="startDateTime" type="string" required>
+  Start of the date range (ISO 8601 format)
+</ParamField>
+
+<ParamField path="endDateTime" type="string" required>
+  End of the date range (ISO 8601 format)
+</ParamField>
+
+<ParamField path="$select" type="string[]">
+  Properties to include
+</ParamField>
+
+<ParamField path="$top" type="int">
+  Number of events to return
+</ParamField>
+
+## Calendar Permissions
+
+### List Permissions
+
+```csharp
+var permissions = await graphClient.Me.Calendar.CalendarPermissions.GetAsync();
+
+foreach (var permission in permissions.Value)
+{
+    Console.WriteLine($"{permission.EmailAddress.Name}: {permission.Role}");
+}
+```
+
+### Share Calendar
+
+```csharp
+var newPermission = new CalendarPermission
+{
+    EmailAddress = new EmailAddress
+    {
+        Address = "colleague@contoso.com",
+        Name = "Colleague"
+    },
+    Role = CalendarRoleType.Read // Read, Write, FreeBusyRead, etc.
+};
+
+await graphClient.Me.Calendar.CalendarPermissions.PostAsync(newPermission);
+```
+
+### Update Permission
+
+```csharp
+var updatePermission = new CalendarPermission
+{
+    Role = CalendarRoleType.Write
+};
+
+await graphClient.Me.Calendar
+    .CalendarPermissions["permission-id"]
+    .PatchAsync(updatePermission);
+```
+
+### Remove Permission
+
+```csharp
+await graphClient.Me.Calendar
+    .CalendarPermissions["permission-id"]
+    .DeleteAsync();
+```
+
+## Calendar Groups
+
+### List Calendar Groups
+
+```csharp
+var calendarGroups = await graphClient.Me.CalendarGroups.GetAsync();
+
+foreach (var group in calendarGroups.Value)
+{
+    Console.WriteLine($"Group: {group.Name}");
+    
+    // List calendars in group
+    var calendars = await graphClient.Me
+        .CalendarGroups[group.Id]
+        .Calendars.GetAsync();
+    
+    foreach (var calendar in calendars.Value)
+    {
+        Console.WriteLine($"  - {calendar.Name}");
+    }
+}
+```
+
+### Create Calendar Group
+
+```csharp
+var newGroup = new CalendarGroup
+{
+    Name = "Project Calendars"
+};
+
+var group = await graphClient.Me.CalendarGroups.PostAsync(newGroup);
+```
+
+## Find Meeting Times
+
+Find available meeting times for attendees.
+
+```csharp
+var findMeetingTimesBody = new FindMeetingTimesPostRequestBody
+{
+    Attendees = new List<AttendeeBase>
+    {
+        new AttendeeBase
+        {
+            EmailAddress = new EmailAddress { Address = "user1@contoso.com" },
+            Type = AttendeeType.Required
+        },
+        new AttendeeBase
+        {
+            EmailAddress = new EmailAddress { Address = "user2@contoso.com" },
+            Type = AttendeeType.Required
+        }
+    },
+    TimeConstraint = new TimeConstraint
+    {
+        TimeSlots = new List<TimeSlot>
+        {
+            new TimeSlot
+            {
+                Start = new DateTimeTimeZone
+                {
+                    DateTime = "2024-03-15T09:00:00",
+                    TimeZone = "Pacific Standard Time"
+                },
+                End = new DateTimeTimeZone
+                {
+                    DateTime = "2024-03-15T17:00:00",
+                    TimeZone = "Pacific Standard Time"
+                }
+            }
+        }
+    },
+    MeetingDuration = TimeSpan.FromHours(1),
+    MaxCandidates = 5
+};
+
+var suggestions = await graphClient.Me.FindMeetingTimes.PostAsync(findMeetingTimesBody);
+
+foreach (var suggestion in suggestions.MeetingTimeSuggestions)
+{
+    Console.WriteLine($"Confidence: {suggestion.Confidence}");
+    Console.WriteLine($"Start: {suggestion.MeetingTimeSlot.Start.DateTime}");
+    Console.WriteLine($"End: {suggestion.MeetingTimeSlot.End.DateTime}");
+}
+```
+
+## Get Schedule (Free/Busy)
+
+Get free/busy information for users.
+
+```csharp
+var getScheduleBody = new GetSchedulePostRequestBody
+{
+    Schedules = new List<string>
+    {
+        "user1@contoso.com",
+        "user2@contoso.com",
+        "room@contoso.com"
+    },
+    StartTime = new DateTimeTimeZone
+    {
+        DateTime = "2024-03-15T00:00:00",
+        TimeZone = "Pacific Standard Time"
+    },
+    EndTime = new DateTimeTimeZone
+    {
+        DateTime = "2024-03-15T23:59:59",
+        TimeZone = "Pacific Standard Time"
+    },
+    AvailabilityViewInterval = 60 // minutes
+};
+
+var schedules = await graphClient.Me.Calendar.GetSchedule.PostAsync(getScheduleBody);
+
+foreach (var schedule in schedules.Value)
+{
+    Console.WriteLine($"{schedule.ScheduleId}: {schedule.AvailabilityView}");
+    // 0=free, 1=tentative, 2=busy, 3=out of office, 4=working elsewhere
+}
+```
+
+## Common Use Cases
+
+### Create Recurring Meeting
+
+```csharp
+var recurringEvent = new Event
+{
+    Subject = "Weekly Team Standup",
+    Start = new DateTimeTimeZone
+    {
+        DateTime = "2024-03-18T10:00:00",
+        TimeZone = "Pacific Standard Time"
+    },
+    End = new DateTimeTimeZone
+    {
+        DateTime = "2024-03-18T10:30:00",
+        TimeZone = "Pacific Standard Time"
+    },
+    Recurrence = new PatternedRecurrence
+    {
+        Pattern = new RecurrencePattern
+        {
+            Type = RecurrencePatternType.Weekly,
+            Interval = 1,
+            DaysOfWeek = new[] { DayOfWeek.Monday }
+        },
+        Range = new RecurrenceRange
+        {
+            Type = RecurrenceRangeType.EndDate,
+            StartDate = new Date(2024, 3, 18),
+            EndDate = new Date(2024, 12, 31)
+        }
+    }
+};
+
+await graphClient.Me.Calendar.Events.PostAsync(recurringEvent);
+```
+
+### Get Today's Events
+
+```csharp
+var today = DateTime.Today;
+var tomorrow = today.AddDays(1);
+
+var todayEvents = await graphClient.Me.Calendar.CalendarView.GetAsync(config =>
+{
+    config.QueryParameters.StartDateTime = today.ToString("yyyy-MM-ddTHH:mm:ssZ");
+    config.QueryParameters.EndDateTime = tomorrow.ToString("yyyy-MM-ddTHH:mm:ssZ");
+    config.QueryParameters.Orderby = new[] { "start/dateTime" };
+});
+```
+
+## Error Handling
+
+```csharp
+using Microsoft.Graph.Models.ODataErrors;
+
+try
+{
+    var calendar = await graphClient.Me.Calendar.GetAsync();
+}
+catch (ODataError error)
+{
+    if (error.Error.Code == "ErrorAccessDenied")
+    {
+        Console.WriteLine("Access denied to calendar");
+    }
+    else
+    {
+        Console.WriteLine($"Error: {error.Error.Message}");
+    }
+}
+```
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Calendar Model" href="https://learn.microsoft.com/graph/api/resources/calendar" icon="calendar">
+    Calendar resource properties
+  </Card>
+  <Card title="Events API" href="/api-reference/events" icon="calendar-days">
+    Event management operations
+  </Card>
+  <Card title="Messages API" href="/api-reference/messages" icon="envelope">
+    Email message operations
+  </Card>
+  <Card title="Users API" href="/api-reference/users" icon="users">
+    User management
+  </Card>
+</CardGroup>

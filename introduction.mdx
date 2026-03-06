@@ -1,0 +1,217 @@
+---
+title: Introduction
+description: Welcome to the Microsoft Graph .NET SDK - Your gateway to Microsoft 365 and Azure services
+---
+
+The Microsoft Graph .NET Client Library is a powerful SDK that enables you to integrate Microsoft Graph API into your .NET applications, providing seamless access to Microsoft 365, Azure Active Directory, and other Microsoft cloud services through a single unified developer experience.
+
+## What is Microsoft Graph .NET SDK?
+
+Microsoft Graph .NET SDK is a client library that simplifies calling Microsoft Graph API from .NET applications. It handles authentication, request building, serialization, and error handling, allowing you to focus on building great applications rather than dealing with low-level HTTP details.
+
+The SDK provides:
+- **Type-safe API access** - Strongly typed models for all Microsoft Graph resources
+- **Fluent request builders** - Intuitive API that mirrors the Microsoft Graph REST endpoints
+- **Modern authentication** - Native support for Azure.Identity TokenCredential classes
+- **Automatic serialization** - JSON serialization/deserialization handled automatically
+- **Error handling** - Comprehensive exception handling for service errors
+- **Paging support** - Built-in support for large result sets and pagination
+
+## Why Use the .NET SDK?
+
+<CardGroup cols={2}>
+  <Card title="Productivity" icon="rocket">
+    Write less code with fluent APIs and strongly-typed models. Get IntelliSense support in your IDE for faster development.
+  </Card>
+  
+  <Card title="Modern Architecture" icon="code">
+    Built with Kiota code generation for consistency, performance, and modern .NET features including async/await patterns.
+  </Card>
+  
+  <Card title="Comprehensive Coverage" icon="grid">
+    Access the full Microsoft Graph API surface including users, groups, mail, calendars, files, Teams, and hundreds of other endpoints.
+  </Card>
+  
+  <Card title="Enterprise Ready" icon="shield-check">
+    Production-tested library used by thousands of applications with regular updates and comprehensive error handling.
+  </Card>
+</CardGroup>
+
+## Key Capabilities
+
+### Access Microsoft 365 Data
+Query and manipulate data across Microsoft 365 services:
+- **Users and Groups** - Manage Azure AD users, groups, and organizational structures
+- **Email and Calendars** - Read, send, and manage Outlook email and calendar events
+- **Files and Documents** - Access OneDrive and SharePoint files with rich metadata
+- **Teams and Collaboration** - Interact with Microsoft Teams channels, chats, and meetings
+- **Security and Compliance** - Access security alerts, policies, and compliance data
+
+### Unified API Surface
+Access multiple Microsoft services through a single, consistent API:
+
+```csharp
+// Get current user
+var user = await graphClient.Me.GetAsync();
+
+// Get user's messages
+var messages = await graphClient.Me.Messages.GetAsync();
+
+// Get user's calendar events
+var events = await graphClient.Me.Events.GetAsync();
+
+// Get user's OneDrive files
+var drive = await graphClient.Me.Drive.GetAsync();
+```
+
+### Flexible Authentication
+Support for multiple authentication flows through Azure.Identity:
+- Interactive browser authentication for user sign-in
+- Client credentials for service-to-service scenarios
+- Device code flow for devices with limited input
+- Username/password for legacy scenarios
+- Certificate-based authentication for enhanced security
+
+## Current Version: v5.x
+
+<Note>
+The SDK is currently at **version 5.103.0** and uses [Kiota](https://github.com/microsoft/kiota) for code generation, bringing significant improvements in performance, consistency, and developer experience.
+</Note>
+
+### What's New in v5
+
+The latest major version includes several architectural improvements:
+
+- **Kiota-based generation** - Modern code generator for better consistency
+- **Namespace organization** - Types organized by usage rather than a flat structure
+- **Simplified API** - Removed `Request()` method from fluent chains
+- **Backing store support** - Efficient change tracking for PATCH operations
+- **OData cast support** - Type-specific collection filtering built into request builders
+- **Enhanced $count support** - First-class support for count operations
+
+<Info>
+If you're upgrading from v4.x, see the [upgrade guide](/upgrade-to-v5) for detailed migration instructions.
+</Info>
+
+## Target Framework Support
+
+The Microsoft Graph .NET SDK targets multiple .NET versions to support a wide range of applications:
+
+- **.NET Standard 2.0** - Compatible with .NET Framework 4.6.1+ and .NET Core 2.0+
+- **.NET Standard 2.1** - Enhanced performance for .NET Core 3.0+
+- **.NET 5.0+** - Full support for modern .NET including .NET 6, 7, and 8
+
+This means you can use the SDK in:
+- ASP.NET Core web applications
+- Console applications
+- Windows desktop applications (WPF, WinForms)
+- Azure Functions
+- Blazor applications
+- Xamarin mobile applications
+- Unity game development
+
+## Architecture Overview
+
+The SDK consists of six major components working together:
+
+<Steps>
+  <Step title="GraphServiceClient">
+    The main entry point for building and sending requests to Microsoft Graph API.
+  </Step>
+  
+  <Step title="Authentication Provider">
+    Handles token acquisition and request authentication using Azure.Identity credentials.
+  </Step>
+  
+  <Step title="Request Builders">
+    Fluent API objects that mirror the REST API structure for building requests.
+  </Step>
+  
+  <Step title="Request Objects">
+    Represent individual HTTP requests with configuration options.
+  </Step>
+  
+  <Step title="Model Classes">
+    Strongly-typed property bag objects for serialization and deserialization.
+  </Step>
+  
+  <Step title="HTTP Provider">
+    Handles HTTP communication, middleware pipeline, and serialization.
+  </Step>
+</Steps>
+
+## Quick Example
+
+Here's a taste of what working with the SDK looks like:
+
+```csharp
+using Azure.Identity;
+using Microsoft.Graph;
+using Microsoft.Graph.Models;
+
+// Create authentication provider
+var credential = new ClientSecretCredential(
+    tenantId: "YOUR_TENANT_ID",
+    clientId: "YOUR_CLIENT_ID",
+    clientSecret: "YOUR_CLIENT_SECRET"
+);
+
+// Create Graph client
+var graphClient = new GraphServiceClient(credential);
+
+// Get user information
+var user = await graphClient.Me.GetAsync();
+Console.WriteLine($"Hello, {user.DisplayName}!");
+
+// Get user's messages
+var messages = await graphClient.Me.Messages.GetAsync();
+foreach (var message in messages.Value)
+{
+    Console.WriteLine($"Subject: {message.Subject}");
+}
+```
+
+<Tip>
+This example uses client credentials authentication. For interactive user authentication, see the [authentication documentation](/authentication).
+</Tip>
+
+## Package Dependencies
+
+The SDK has minimal external dependencies:
+
+- **Microsoft.Graph.Core** (v3.x) - Core abstractions and HTTP middleware
+- **Azure.Identity** (optional) - For TokenCredential-based authentication
+- **System.Text.Json** - For JSON serialization (built into .NET)
+
+## Community and Support
+
+The Microsoft Graph .NET SDK is an open-source project with active community support:
+
+- **GitHub Repository** - [microsoftgraph/msgraph-sdk-dotnet](https://github.com/microsoftgraph/msgraph-sdk-dotnet)
+- **NuGet Package** - [Microsoft.Graph](https://www.nuget.org/packages/Microsoft.Graph)
+- **Issue Tracking** - Report bugs and request features on GitHub
+- **API Documentation** - [Microsoft Graph API Reference](https://docs.microsoft.com/en-us/graph/api/overview)
+
+<Info>
+The SDK is updated during the second and fourth week of each month with the latest API changes and improvements.
+</Info>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install the SDK and configure your development environment
+  </Card>
+  
+  <Card title="Quick Start" icon="bolt" href="/quickstart">
+    Build your first Microsoft Graph application in minutes
+  </Card>
+  
+  <Card title="Authentication" icon="key" href="/authentication">
+    Learn about authentication options and best practices
+  </Card>
+  
+  <Card title="Core Concepts" icon="book" href="/core-concepts">
+    Understand request builders, models, and collections
+  </Card>
+</CardGroup>

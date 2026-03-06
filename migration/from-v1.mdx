@@ -1,0 +1,645 @@
+---
+title: Migrate from v1.x
+description: Complete migration guide from Microsoft Graph .NET SDK v1.x to v5, covering cumulative breaking changes and step-by-step migration path
+---
+
+# Migrate from v1.x
+
+This guide provides a comprehensive overview of migrating from v1.x of the Microsoft Graph .NET SDK to the current v5. If you're upgrading from v1.x, you'll need to account for breaking changes introduced in v3, v4, and v5.
+
+<Warning>
+  Migrating from v1.x to v5 involves significant breaking changes across multiple versions. Plan adequate time for testing and validation.
+</Warning>
+
+## Overview of Changes
+
+The Microsoft Graph .NET SDK has evolved significantly from v1.x to v5:
+
+- **v3**: Framework version requirements and minor API changes
+- **v4**: System.Text.Json replaced Newtonsoft.Json, Azure.Identity support added
+- **v5**: Complete rewrite using Kiota code generator with major API changes
+
+## Framework Requirements
+
+### v1.x
+- .NET Standard: `netstandard1.3`
+- .NET Framework: `net45`
+
+### v5
+- .NET Standard: `netstandard2.0` (minimum)
+- .NET Framework: `net462` (minimum)
+
+<Note>
+  Update your project's target framework before beginning the migration.
+</Note>
+
+## Step-by-Step Migration Path
+
+### Step 1: Update Package References
+
+Update your NuGet package references:
+
+```xml
+<!-- Remove or update old packages -->
+<PackageReference Include="Microsoft.Graph" Version="5.x.x" />
+<PackageReference Include="Azure.Identity" Version="1.x.x" />
+```
+
+### Step 2: Update Authentication
+
+**v1.x Approach:**
+```csharp
+// Using DelegateAuthenticationProvider
+var authenticationProvider = new DelegateAuthenticationProvider(
+    async (requestMessage) =>
+    {
+        var accessToken = await GetAccessTokenAsync();
+        requestMessage.Headers.Authorization = 
+            new AuthenticationHeaderValue("Bearer", accessToken);
+    });
+
+var graphServiceClient = new GraphServiceClient(authenticationProvider);
+```
+
+**v5 Approach:**
+```csharp
+using Azure.Identity;
+using Microsoft.Graph;
+
+// Using TokenCredential from Azure.Identity
+var interactiveBrowserCredential = new InteractiveBrowserCredential(
+    new InteractiveBrowserCredentialOptions 
+    { 
+        ClientId = clientId,
+        TenantId = tenantId
+    }
+);
+
+var graphServiceClient = new GraphServiceClient(interactiveBrowserCredential);
+```
+
+**Custom authentication in v5:**
+```csharp
+using Microsoft.Kiota.Abstractions.Authentication;
+
+public class TokenProvider : IAccessTokenProvider
+{
+    public Task<string> GetAuthorizationTokenAsync(
+        Uri uri, 
+        Dictionary<string, object> additionalAuthenticationContext = default,
+        CancellationToken cancellationToken = default)
+    {
+        var token = "your-access-token";
+        return Task.FromResult(token);
+    }
+
+    public AllowedHostsValidator AllowedHostsValidator { get; }
+}
+
+var authenticationProvider = new BaseBearerTokenAuthenticationProvider(new TokenProvider());
+var graphServiceClient = new GraphServiceClient(authenticationProvider);
+```
+
+### Step 3: Update Request Syntax
+
+**v1.x and v3/v4 (with Request()):**
+```csharp
+// Get user
+var user = await graphServiceClient
+    .Me
+    .Request()
+    .GetAsync();
+
+// Update user
+await graphServiceClient
+    .Users[userId]
+    .Request()
+    .UpdateAsync(user);
+
+// Add group
+await graphServiceClient
+    .Groups
+    .Request()
+    .AddAsync(group);
+```
+
+**v5 (Request() removed):**
+```csharp
+using Microsoft.Graph.Models;
+
+// Get user
+var user = await graphServiceClient
+    .Me
+    .GetAsync();
+
+// Update user (UpdateAsync renamed to PatchAsync)
+await graphServiceClient
+    .Users[userId]
+    .PatchAsync(user);
+
+// Add group (AddAsync renamed to PostAsync)
+await graphServiceClient
+    .Groups
+    .PostAsync(group);
+```
+
+### Step 4: Update Namespace Imports
+
+**v1.x:**
+```csharp
+using Microsoft.Graph;
+
+// All types were in Microsoft.Graph namespace
+User user = new User();
+GraphServiceClient client = new GraphServiceClient(authProvider);
+```
+
+**v5:**
+```csharp
+using Microsoft.Graph;
+using Microsoft.Graph.Models; // Model types in separate namespace
+using Microsoft.Graph.Me.SendMail; // Request body types in operation namespaces
+
+User user = new User();
+GraphServiceClient client = new GraphServiceClient(authProvider);
+```
+
+### Step 5: Update Headers and Query Options
+
+**v1.x/v3/v4:**
+```csharp
+var options = new List<Option>
+{
+    new HeaderOption("ConsistencyLevel", "eventual"),
+    new QueryOption("$select", "id,displayName")
+};
+
+var users = await graphServiceClient
+    .Users
+    .Request(options)
+    .Top(10)
+    .Filter("startsWith(displayName, 'J')")
+    .GetAsync();
+```
+
+**v5:**
+```csharp
+var users = await graphServiceClient
+    .Users
+    .GetAsync(requestConfiguration =>
+    {
+        requestConfiguration.Headers.Add("ConsistencyLevel", "eventual");
+        requestConfiguration.QueryParameters.Select = new string[] { "id", "displayName" };
+        requestConfiguration.QueryParameters.Top = 10;
+        requestConfiguration.QueryParameters.Filter = "startsWith(displayName, 'J')";
+    });
+```
+
+### Step 6: Update Error Handling
+
+**v1.x/v3/v4:**
+```csharp
+try
+{
+    var user = await graphServiceClient.Me.Request().GetAsync();
+}
+catch (ServiceException ex)
+{
+    Console.WriteLine($"Error: {ex.Error.Code}");
+    Console.WriteLine($"Message: {ex.Error.Message}");
+    Console.WriteLine($"Status Code: {ex.StatusCode}");
+}
+```
+
+**v5:**
+```csharp
+using Microsoft.Graph.Models.ODataErrors;
+
+try
+{
+    var user = await graphServiceClient.Me.GetAsync();
+}
+catch (ODataError odataError)
+{
+    Console.WriteLine($"Error: {odataError.Error.Code}");
+    Console.WriteLine($"Message: {odataError.Error.Message}");
+    // Status code available in the exception details
+    throw;
+}
+```
+
+### Step 7: Update Collection Handling
+
+**v1.x/v3/v4:**
+```csharp
+var users = await graphServiceClient
+    .Users
+    .Request()
+    .GetAsync();
+
+// Iterate through current page
+foreach (var user in users)
+{
+    Console.WriteLine(user.DisplayName);
+}
+
+// Get next page
+if (users.NextPageRequest != null)
+{
+    var nextPageUsers = await users.NextPageRequest.GetAsync();
+}
+```
+
+**v5:**
+```csharp
+var usersResponse = await graphServiceClient
+    .Users
+    .GetAsync();
+
+// Access the collection via Value property
+foreach (var user in usersResponse.Value)
+{
+    Console.WriteLine(user.DisplayName);
+}
+
+// Next page link is in OdataNextLink property
+if (!string.IsNullOrEmpty(usersResponse.OdataNextLink))
+{
+    // Use PageIterator or create new request builder with the link
+}
+```
+
+### Step 8: Update PageIterator Usage
+
+**v1.x/v3/v4:**
+```csharp
+var users = await graphServiceClient
+    .Users
+    .Request()
+    .GetAsync();
+
+var pageIterator = PageIterator<User>
+    .CreatePageIterator(
+        graphServiceClient,
+        users,
+        (user) => 
+        {
+            Console.WriteLine(user.DisplayName);
+            return true;
+        }
+    );
+
+await pageIterator.IterateAsync();
+```
+
+**v5:**
+```csharp
+var usersResponse = await graphServiceClient
+    .Users
+    .GetAsync();
+
+var userList = new List<User>();
+var pageIterator = PageIterator<User, UserCollectionResponse>
+    .CreatePageIterator(
+        graphServiceClient,
+        usersResponse,
+        (user) => 
+        {
+            userList.Add(user);
+            return true;
+        }
+    );
+
+await pageIterator.IterateAsync();
+```
+
+### Step 9: Update JSON Serialization (v4 Change)
+
+If you were using Newtonsoft.Json for custom serialization:
+
+**v1.x/v3 (Newtonsoft.Json):**
+```csharp
+using Newtonsoft.Json.Linq;
+
+var customData = user.AdditionalData["customField"] as JObject;
+var value = customData["property"].ToString();
+```
+
+**v4/v5 (System.Text.Json):**
+```csharp
+using System.Text.Json;
+
+if (user.AdditionalData["customField"] is JsonElement jsonElement)
+{
+    if (jsonElement.ValueKind == JsonValueKind.Object)
+    {
+        var property = jsonElement.GetProperty("property");
+        var value = property.GetString();
+    }
+}
+```
+
+### Step 10: Update OData Function/Action Calls
+
+**v1.x/v3/v4:**
+```csharp
+// Send mail
+await graphClient.Me
+    .SendMail(message, saveToSentItems)
+    .Request()
+    .PostAsync();
+```
+
+**v5:**
+```csharp
+using Microsoft.Graph.Me.SendMail;
+
+// Send mail with parameter object
+var body = new SendMailPostRequestBody
+{
+    Message = message,
+    SaveToSentItems = saveToSentItems
+};
+
+await graphServiceClient.Me
+    .SendMail
+    .PostAsync(body);
+```
+
+## Key API Changes Summary
+
+### Method Renames
+
+| v1.x - v4 | v5 |
+|-----------|----|
+| `.Request()` | Removed |
+| `.UpdateAsync()` | `.PatchAsync()` |
+| `.AddAsync()` | `.PostAsync()` |
+
+### Class/Type Changes
+
+| v1.x - v4 | v5 |
+|-----------|----|
+| `ServiceException` | `ODataError` |
+| `HeaderOption` | Use `requestConfiguration.Headers` |
+| `QueryOption` | Use `requestConfiguration.QueryParameters` |
+| `IBaseRequest` | `RequestInformation` |
+| `DelegateAuthenticationProvider` | `IAccessTokenProvider` + `BaseBearerTokenAuthenticationProvider` |
+
+### Namespace Changes
+
+| Type | v1.x - v4 | v5 |
+|------|-----------|----|
+| Models | `Microsoft.Graph` | `Microsoft.Graph.Models` |
+| Service Client | `Microsoft.Graph` | `Microsoft.Graph` |
+| Request Bodies | `Microsoft.Graph` | Path-based (e.g., `Microsoft.Graph.Me.SendMail`) |
+| Beta Models | `Microsoft.Graph` | `Microsoft.Graph.Beta.Models` |
+
+## New Features in v5
+
+### Backing Store (Dirty Tracking)
+
+Automatically track and send only changed properties:
+
+```csharp
+// Get the object
+var event = await graphServiceClient
+    .Me.Events["event-id"]
+    .GetAsync();
+
+// Only modified properties will be sent
+event.Subject = "Updated Subject";
+event.Recurrence = null; // Can now set to null directly
+
+await graphServiceClient.Me.Events["event-id"]
+    .PatchAsync(event);
+```
+
+### Native $count Support
+
+```csharp
+// No workarounds needed
+var count = await graphServiceClient.Users.Count
+    .GetAsync(requestConfiguration => 
+        requestConfiguration.Headers.Add("ConsistencyLevel", "eventual"));
+```
+
+### OData Type Casting
+
+```csharp
+// Get only users from group members
+var usersInGroup = await graphServiceClient
+    .Groups["group-id"]
+    .Members
+    .GraphUser
+    .GetAsync();
+
+// Get only applications from group members
+var applicationsInGroup = await graphServiceClient
+    .Groups["group-id"]
+    .Members
+    .GraphApplication
+    .GetAsync();
+```
+
+### Improved Batch Requests
+
+```csharp
+// Support for RequestInformation
+var requestInformation = graphServiceClient.Users.ToGetRequestInformation();
+
+var batchRequestContent = new BatchRequestContent(graphServiceClient);
+var requestStepId = await batchRequestContent.AddBatchRequestStepAsync(requestInformation);
+
+var batchResponseContent = await graphServiceClient.Batch.PostAsync(batchRequestContent);
+var usersResponse = await batchResponseContent.GetResponseByIdAsync<UserCollectionResponse>(requestStepId);
+
+// Automatic batch size management
+var batchRequestCollection = new BatchRequestContentCollection(graphServiceClient);
+```
+
+## Common Migration Issues
+
+### Issue 1: Missing Namespace Imports
+
+**Error:**
+```
+The type or namespace name 'User' could not be found
+```
+
+**Solution:**
+```csharp
+using Microsoft.Graph.Models; // Add this import
+```
+
+### Issue 2: Request() Method Not Found
+
+**Error:**
+```
+'IUserRequestBuilder' does not contain a definition for 'Request'
+```
+
+**Solution:**
+```csharp
+// Remove .Request() from your code
+await graphServiceClient.Me.GetAsync(); // Correct
+```
+
+### Issue 3: UpdateAsync/AddAsync Methods Not Found
+
+**Error:**
+```
+'IUserItemRequestBuilder' does not contain a definition for 'UpdateAsync'
+```
+
+**Solution:**
+```csharp
+// Use PatchAsync instead of UpdateAsync
+await graphServiceClient.Users[userId].PatchAsync(user);
+
+// Use PostAsync instead of AddAsync
+await graphServiceClient.Groups.PostAsync(group);
+```
+
+### Issue 4: ServiceException Not Found
+
+**Error:**
+```
+The type or namespace name 'ServiceException' could not be found
+```
+
+**Solution:**
+```csharp
+using Microsoft.Graph.Models.ODataErrors;
+
+try 
+{
+    // Your code
+}
+catch (ODataError odataError) // Use ODataError instead
+{
+    // Handle error
+}
+```
+
+### Issue 5: Collection Access Changes
+
+**Error:**
+```
+Cannot convert from 'UserCollectionResponse' to 'IEnumerable<User>'
+```
+
+**Solution:**
+```csharp
+var usersResponse = await graphServiceClient.Users.GetAsync();
+// Access collection via .Value property
+foreach (var user in usersResponse.Value)
+{
+    // Process user
+}
+```
+
+## Migration Checklist
+
+<Card title="Complete Migration Checklist" icon="clipboard-check">
+  ### Framework & Packages
+  - [ ] Update .NET target framework to .NET Standard 2.0 or .NET Framework 4.6.2+
+  - [ ] Update Microsoft.Graph package to v5.x
+  - [ ] Add Azure.Identity package for authentication
+  - [ ] Remove Microsoft.Graph.Auth package (if used)
+  
+  ### Authentication
+  - [ ] Replace DelegateAuthenticationProvider with TokenCredential or IAccessTokenProvider
+  - [ ] Update authentication configuration
+  - [ ] Test authentication flow
+  
+  ### Code Updates
+  - [ ] Add `using Microsoft.Graph.Models;` namespace imports
+  - [ ] Remove all `.Request()` calls
+  - [ ] Replace `UpdateAsync()` with `PatchAsync()`
+  - [ ] Replace `AddAsync()` with `PostAsync()`
+  - [ ] Update header and query parameter usage to use `requestConfiguration`
+  - [ ] Update error handling to catch `ODataError`
+  - [ ] Update collection handling to use `.Value` property
+  - [ ] Update PageIterator to include collection response type
+  - [ ] Update OData function/action calls to use parameter objects
+  - [ ] Replace Newtonsoft.Json usage with System.Text.Json (if applicable)
+  
+  ### Testing
+  - [ ] Test all authentication scenarios
+  - [ ] Test CRUD operations
+  - [ ] Test collection pagination
+  - [ ] Test error handling
+  - [ ] Test batch requests (if used)
+  - [ ] Test custom serialization (if used)
+  - [ ] Perform integration testing
+  - [ ] Validate performance
+</Card>
+
+## Migration Strategy
+
+<Warning>
+  Do not attempt to migrate everything at once. Use a phased approach.
+</Warning>
+
+### Recommended Approach
+
+1. **Phase 1: Preparation**
+   - Update target framework
+   - Update packages in a separate branch
+   - Fix compilation errors
+   - Update authentication
+
+2. **Phase 2: Core Updates**
+   - Update request syntax (remove `.Request()`)
+   - Update method names (UpdateAsync → PatchAsync)
+   - Update namespace imports
+   - Fix collection handling
+
+3. **Phase 3: Advanced Features**
+   - Update headers and query parameters
+   - Update error handling
+   - Update PageIterator usage
+   - Update batch requests
+
+4. **Phase 4: Testing & Validation**
+   - Unit testing
+   - Integration testing
+   - Performance testing
+   - User acceptance testing
+
+5. **Phase 5: Deployment**
+   - Deploy to staging environment
+   - Monitor for issues
+   - Deploy to production
+   - Continue monitoring
+
+## Additional Resources
+
+<CardGroup cols={2}>
+  <Card title="Upgrade to v5 Guide" icon="arrow-up" href="/migration/upgrade-to-v5">
+    Detailed v4 to v5 migration guide
+  </Card>
+  <Card title="Upgrade to v4 Guide" icon="arrow-up" href="/migration/upgrade-to-v4">
+    Detailed v3 to v4 migration guide
+  </Card>
+  <Card title="Kiota Documentation" icon="book" href="https://github.com/microsoft/kiota">
+    Learn about the Kiota code generator
+  </Card>
+  <Card title="Azure Identity" icon="shield" href="https://docs.microsoft.com/en-us/dotnet/api/overview/azure/identity-readme">
+    Azure.Identity library documentation
+  </Card>
+</CardGroup>
+
+## Getting Help
+
+If you encounter issues during migration:
+
+1. Check the [GitHub Issues](https://github.com/microsoftgraph/msgraph-sdk-dotnet/issues) for similar problems
+2. Review the [Microsoft Graph documentation](https://docs.microsoft.com/en-us/graph/sdks/sdks-overview)
+3. Test your queries in [Microsoft Graph Explorer](https://developer.microsoft.com/en-us/graph/graph-explorer)
+4. Open a new issue if you find a bug or need assistance
+
+<Note>
+  This migration guide is comprehensive but may not cover every edge case. Always test thoroughly in a development environment before deploying to production.
+</Note>

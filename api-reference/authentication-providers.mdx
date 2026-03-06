@@ -1,0 +1,297 @@
+---
+title: 'Authentication Providers'
+description: 'Authentication options for Microsoft Graph .NET SDK'
+---
+
+## Overview
+
+The Microsoft Graph .NET SDK supports multiple authentication approaches through Azure Identity and custom authentication providers.
+
+## Azure Identity Integration
+
+The SDK integrates with Azure.Identity library, providing seamless authentication using `TokenCredential` implementations.
+
+### AzureIdentityAuthenticationProvider
+
+Internal authentication provider that wraps Azure Identity credentials.
+
+```csharp
+using Azure.Identity;
+using Microsoft.Graph;
+
+var credential = new ClientSecretCredential(
+    tenantId: "YOUR_TENANT_ID",
+    clientId: "YOUR_CLIENT_ID",
+    clientSecret: "YOUR_CLIENT_SECRET"
+);
+
+var graphClient = new GraphServiceClient(credential);
+```
+
+## Supported TokenCredential Types
+
+### ClientSecretCredential
+
+Authenticate using application client ID and secret.
+
+```csharp
+using Azure.Identity;
+
+var credential = new ClientSecretCredential(
+    tenantId: "YOUR_TENANT_ID",
+    clientId: "YOUR_CLIENT_ID",
+    clientSecret: "YOUR_CLIENT_SECRET"
+);
+
+var graphClient = new GraphServiceClient(credential);
+```
+
+<ParamField path="tenantId" type="string" required>
+  Azure AD tenant ID
+</ParamField>
+
+<ParamField path="clientId" type="string" required>
+  Application (client) ID from Azure AD
+</ParamField>
+
+<ParamField path="clientSecret" type="string" required>
+  Client secret from Azure AD
+</ParamField>
+
+### ClientCertificateCredential
+
+Authenticate using X.509 certificate.
+
+```csharp
+using Azure.Identity;
+using System.Security.Cryptography.X509Certificates;
+
+var certificate = new X509Certificate2("path/to/certificate.pfx", "password");
+
+var credential = new ClientCertificateCredential(
+    tenantId: "YOUR_TENANT_ID",
+    clientId: "YOUR_CLIENT_ID",
+    certificate: certificate
+);
+
+var graphClient = new GraphServiceClient(credential);
+```
+
+### UsernamePasswordCredential
+
+Authenticate with username and password (not recommended for production).
+
+```csharp
+using Azure.Identity;
+
+var credential = new UsernamePasswordCredential(
+    username: "user@domain.com",
+    password: "password",
+    tenantId: "YOUR_TENANT_ID",
+    clientId: "YOUR_CLIENT_ID"
+);
+
+var graphClient = new GraphServiceClient(credential);
+```
+
+<Warning>
+  Username/password authentication is not recommended for production applications. Use interactive or certificate-based authentication instead.
+</Warning>
+
+### DeviceCodeCredential
+
+Interactive authentication using device code flow.
+
+```csharp
+using Azure.Identity;
+
+var credential = new DeviceCodeCredential(
+    tenantId: "YOUR_TENANT_ID",
+    clientId: "YOUR_CLIENT_ID",
+    deviceCodeCallback: (code, cancellation) =>
+    {
+        Console.WriteLine(code.Message);
+        return Task.CompletedTask;
+    }
+);
+
+var graphClient = new GraphServiceClient(credential);
+```
+
+### InteractiveBrowserCredential
+
+Authenticate by launching system browser.
+
+```csharp
+using Azure.Identity;
+
+var credential = new InteractiveBrowserCredential(
+    new InteractiveBrowserCredentialOptions
+    {
+        TenantId = "YOUR_TENANT_ID",
+        ClientId = "YOUR_CLIENT_ID",
+        RedirectUri = new Uri("http://localhost")
+    }
+);
+
+var graphClient = new GraphServiceClient(credential);
+```
+
+### DefaultAzureCredential
+
+Attempts multiple authentication methods in order.
+
+```csharp
+using Azure.Identity;
+
+var credential = new DefaultAzureCredential();
+
+var graphClient = new GraphServiceClient(
+    credential,
+    scopes: new[] { "https://graph.microsoft.com/.default" }
+);
+```
+
+**Authentication order:**
+1. Environment variables
+2. Managed Identity
+3. Visual Studio
+4. Azure CLI
+5. Azure PowerShell
+6. Interactive browser
+
+### ManagedIdentityCredential
+
+Authenticate using Azure Managed Identity (for Azure-hosted applications).
+
+```csharp
+using Azure.Identity;
+
+// System-assigned managed identity
+var credential = new ManagedIdentityCredential();
+
+// User-assigned managed identity
+var credential = new ManagedIdentityCredential(clientId: "USER_ASSIGNED_CLIENT_ID");
+
+var graphClient = new GraphServiceClient(credential);
+```
+
+## Custom Scopes
+
+Specify custom permission scopes during initialization:
+
+```csharp
+var graphClient = new GraphServiceClient(
+    credential,
+    scopes: new[]
+    {
+        "User.Read",
+        "Group.Read.All",
+        "Mail.Send"
+    }
+);
+```
+
+## IAuthenticationProvider Interface
+
+Implement custom authentication logic:
+
+```csharp
+using Microsoft.Kiota.Abstractions.Authentication;
+using System.Net.Http;
+using System.Threading;
+using System.Threading.Tasks;
+
+public class CustomAuthenticationProvider : IAuthenticationProvider
+{
+    public async Task AuthenticateRequestAsync(
+        RequestInformation request,
+        Dictionary<string, object> additionalAuthenticationContext = null,
+        CancellationToken cancellationToken = default)
+    {
+        // Add custom authentication header
+        var token = await GetAccessTokenAsync();
+        request.Headers.Add("Authorization", $"Bearer {token}");
+    }
+
+    private async Task<string> GetAccessTokenAsync()
+    {
+        // Custom token acquisition logic
+        return "your-access-token";
+    }
+}
+
+// Use custom provider
+var authProvider = new CustomAuthenticationProvider();
+var graphClient = new GraphServiceClient(authProvider);
+```
+
+## Anonymous Authentication
+
+For scenarios where authentication is handled by HTTP client middleware:
+
+```csharp
+using Microsoft.Graph.Authentication;
+
+var httpClient = new HttpClient();
+// Configure httpClient with custom authentication middleware
+
+var graphClient = new GraphServiceClient(
+    httpClient,
+    authenticationProvider: null  // Uses AnonymousAuthenticationProvider
+);
+```
+
+## On-Behalf-Of Flow
+
+For middle-tier services acting on behalf of users:
+
+```csharp
+using Azure.Identity;
+
+var credential = new OnBehalfOfCredential(
+    tenantId: "YOUR_TENANT_ID",
+    clientId: "YOUR_CLIENT_ID",
+    clientSecret: "YOUR_CLIENT_SECRET",
+    userAssertion: "user-access-token"
+);
+
+var graphClient = new GraphServiceClient(credential);
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Managed Identity in Azure">
+    When running in Azure (App Service, Functions, VMs), use ManagedIdentityCredential for secure, credential-free authentication.
+  </Accordion>
+
+  <Accordion title="Avoid Hardcoding Secrets">
+    Never hardcode client secrets or passwords. Use Azure Key Vault, environment variables, or secure configuration management.
+  </Accordion>
+
+  <Accordion title="Request Minimal Scopes">
+    Only request the permissions your application needs. Use specific scopes instead of ".default" when possible.
+  </Accordion>
+
+  <Accordion title="Handle Token Refresh">
+    Azure.Identity credentials automatically handle token refresh. Don't implement manual refresh logic.
+  </Accordion>
+</AccordionGroup>
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="GraphServiceClient" href="/api-reference/graph-service-client" icon="code">
+    Main client initialization
+  </Card>
+  <Card title="Azure Identity Documentation" href="https://learn.microsoft.com/dotnet/api/overview/azure/identity-readme" icon="link">
+    Azure.Identity library reference
+  </Card>
+  <Card title="Authentication Guide" href="/guides/authentication" icon="shield-halved">
+    Complete authentication setup guide
+  </Card>
+  <Card title="Permission Scopes" href="https://learn.microsoft.com/graph/permissions-reference" icon="lock">
+    Microsoft Graph permissions reference
+  </Card>
+</CardGroup>

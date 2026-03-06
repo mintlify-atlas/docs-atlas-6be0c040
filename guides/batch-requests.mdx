@@ -1,0 +1,607 @@
+---
+title: Batch Requests
+description: Learn how to combine multiple API calls into a single batch request for improved performance
+---
+
+Batch requests allow you to combine multiple Microsoft Graph API calls into a single HTTP request, reducing network overhead and improving application performance.
+
+## Benefits of Batch Requests
+
+- **Reduced Network Overhead** - Make one request instead of many
+- **Improved Performance** - Execute operations in parallel
+- **Simplified Error Handling** - Handle multiple responses together
+- **Rate Limit Optimization** - Reduce the number of individual API calls
+
+## Limitations
+
+<Note>
+- Maximum of 20 individual requests per batch
+- Each request counts toward throttling limits
+- Batch requests have a timeout of 180 seconds
+- Some endpoints don't support batching (see documentation)
+</Note>
+
+## Getting Started
+
+```csharp
+using Microsoft.Graph;
+using Microsoft.Graph.Models;
+using Microsoft.Kiota.Abstractions;
+using Microsoft.Kiota.Abstractions.Serialization;
+
+var graphClient = new GraphServiceClient(authProvider);
+```
+
+## Creating Batch Requests
+
+### Basic Batch Request
+
+<Steps>
+  <Step title="Create batch request content">
+    ```csharp
+    var batchRequestContent = new BatchRequestContent();
+    ```
+  </Step>
+
+  <Step title="Add requests to batch">
+    ```csharp
+    // Request 1: Get user profile
+    var userRequest = graphClient.Me.ToGetRequestInformation();
+    var userRequestId = await batchRequestContent.AddBatchRequestStepAsync(userRequest);
+
+    // Request 2: Get user's messages
+    var messagesRequest = graphClient.Me.Messages.ToGetRequestInformation(config =>
+    {
+        config.QueryParameters.Top = 10;
+    });
+    var messagesRequestId = await batchRequestContent.AddBatchRequestStepAsync(messagesRequest);
+
+    // Request 3: Get user's events
+    var eventsRequest = graphClient.Me.Events.ToGetRequestInformation(config =>
+    {
+        config.QueryParameters.Top = 10;
+    });
+    var eventsRequestId = await batchRequestContent.AddBatchRequestStepAsync(eventsRequest);
+    ```
+  </Step>
+
+  <Step title="Send batch request">
+    ```csharp
+    var batchResponse = await graphClient.Batch.PostAsync(batchRequestContent);
+    ```
+  </Step>
+
+  <Step title="Process responses">
+    ```csharp
+    // Get user profile response
+    var user = await batchResponse.GetResponseByIdAsync<User>(userRequestId);
+    Console.WriteLine($"User: {user.DisplayName}");
+
+    // Get messages response
+    var messages = await batchResponse.GetResponseByIdAsync<MessageCollectionResponse>(
+        messagesRequestId
+    );
+    Console.WriteLine($"Messages: {messages.Value.Count}");
+
+    // Get events response
+    var events = await batchResponse.GetResponseByIdAsync<EventCollectionResponse>(
+        eventsRequestId
+    );
+    Console.WriteLine($"Events: {events.Value.Count}");
+    ```
+  </Step>
+</Steps>
+
+## Batch Request with Dependencies
+
+Execute requests in sequence by specifying dependencies:
+
+```csharp
+var batchRequestContent = new BatchRequestContent();
+
+// Step 1: Create a folder
+var newFolder = new DriveItem
+{
+    Name = "BatchFolder",
+    Folder = new Folder()
+};
+
+var createFolderRequest = graphClient.Me.Drive.Root.Children
+    .ToPostRequestInformation(newFolder);
+var folderRequestId = await batchRequestContent.AddBatchRequestStepAsync(
+    createFolderRequest
+);
+
+// Step 2: Upload file to the new folder (depends on step 1)
+var fileContent = System.Text.Encoding.UTF8.GetBytes("Hello from batch!");
+using var stream = new MemoryStream(fileContent);
+
+var uploadRequest = graphClient.Me.Drive.Items["{folder-id}"]
+    .ItemWithPath("test.txt")
+    .Content
+    .ToPutRequestInformation(stream);
+
+// This request depends on the folder creation
+var uploadRequestId = await batchRequestContent.AddBatchRequestStepAsync(
+    uploadRequest,
+    new List<string> { folderRequestId }
+);
+
+var batchResponse = await graphClient.Batch.PostAsync(batchRequestContent);
+```
+
+## Common Batch Scenarios
+
+### Batch Read Operations
+
+Read multiple resources in one request:
+
+```csharp
+public async Task<Dictionary<string, User>> GetMultipleUsersAsync(List<string> userIds)
+{
+    var batchRequestContent = new BatchRequestContent();
+    var requestIds = new Dictionary<string, string>();
+
+    // Add request for each user
+    foreach (var userId in userIds)
+    {
+        var request = graphClient.Users[userId].ToGetRequestInformation();
+        var requestId = await batchRequestContent.AddBatchRequestStepAsync(request);
+        requestIds[requestId] = userId;
+    }
+
+    // Send batch
+    var batchResponse = await graphClient.Batch.PostAsync(batchRequestContent);
+
+    // Collect responses
+    var users = new Dictionary<string, User>();
+    foreach (var kvp in requestIds)
+    {
+        try
+        {
+            var user = await batchResponse.GetResponseByIdAsync<User>(kvp.Key);
+            users[kvp.Value] = user;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to get user {kvp.Value}: {ex.Message}");
+        }
+    }
+
+    return users;
+}
+```
+
+### Batch Update Operations
+
+Update multiple resources at once:
+
+```csharp
+public async Task<int> UpdateMultipleMessagesAsync(
+    List<string> messageIds,
+    bool markAsRead)
+{
+    var batchRequestContent = new BatchRequestContent();
+    var requestIds = new List<string>();
+
+    var messageUpdate = new Message { IsRead = markAsRead };
+
+    foreach (var messageId in messageIds)
+    {
+        var request = graphClient.Me.Messages[messageId]
+            .ToPatchRequestInformation(messageUpdate);
+        
+        var requestId = await batchRequestContent.AddBatchRequestStepAsync(request);
+        requestIds.Add(requestId);
+    }
+
+    var batchResponse = await graphClient.Batch.PostAsync(batchRequestContent);
+
+    // Count successful updates
+    int successCount = 0;
+    foreach (var requestId in requestIds)
+    {
+        try
+        {
+            var response = await batchResponse.GetResponseByIdAsync(requestId);
+            if (response != null)
+                successCount++;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Update failed: {ex.Message}");
+        }
+    }
+
+    return successCount;
+}
+```
+
+### Batch Create Operations
+
+Create multiple items in one batch:
+
+```csharp
+public async Task<List<Event>> CreateMultipleEventsAsync(
+    List<Event> events)
+{
+    var batchRequestContent = new BatchRequestContent();
+    var requestIds = new List<string>();
+
+    foreach (var evt in events)
+    {
+        var request = graphClient.Me.Events
+            .ToPostRequestInformation(evt);
+        
+        var requestId = await batchRequestContent.AddBatchRequestStepAsync(request);
+        requestIds.Add(requestId);
+    }
+
+    var batchResponse = await graphClient.Batch.PostAsync(batchRequestContent);
+
+    var createdEvents = new List<Event>();
+    foreach (var requestId in requestIds)
+    {
+        try
+        {
+            var createdEvent = await batchResponse.GetResponseByIdAsync<Event>(
+                requestId
+            );
+            createdEvents.Add(createdEvent);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to create event: {ex.Message}");
+        }
+    }
+
+    return createdEvents;
+}
+```
+
+## Error Handling
+
+### Handle Individual Request Failures
+
+```csharp
+var batchRequestContent = new BatchRequestContent();
+var requestIds = new Dictionary<string, string>();
+
+// Add multiple requests
+foreach (var userId in userIds)
+{
+    var request = graphClient.Users[userId].ToGetRequestInformation();
+    var requestId = await batchRequestContent.AddBatchRequestStepAsync(request);
+    requestIds[requestId] = userId;
+}
+
+var batchResponse = await graphClient.Batch.PostAsync(batchRequestContent);
+
+// Process each response with error handling
+foreach (var kvp in requestIds)
+{
+    try
+    {
+        var response = await batchResponse.GetResponseByIdAsync<User>(kvp.Key);
+        Console.WriteLine($"Success: {response.DisplayName}");
+    }
+    catch (ServiceException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+    {
+        Console.WriteLine($"User {kvp.Value} not found");
+    }
+    catch (ServiceException ex)
+    {
+        Console.WriteLine($"Error for user {kvp.Value}: {ex.Message}");
+    }
+}
+```
+
+### Check Response Status
+
+```csharp
+var batchResponse = await graphClient.Batch.PostAsync(batchRequestContent);
+
+foreach (var requestId in requestIds)
+{
+    var httpResponse = await batchResponse.GetResponseByIdAsync(requestId);
+    
+    if (httpResponse.IsSuccessStatusCode)
+    {
+        Console.WriteLine($"Request {requestId} succeeded");
+    }
+    else
+    {
+        Console.WriteLine($"Request {requestId} failed: {httpResponse.StatusCode}");
+    }
+}
+```
+
+## Performance Optimization
+
+### Maximize Batch Size
+
+Group requests in batches of 20 (the maximum):
+
+```csharp
+public async Task ProcessLargeDataSetAsync(List<string> allUserIds)
+{
+    const int batchSize = 20;
+    var batches = allUserIds
+        .Select((id, index) => new { id, index })
+        .GroupBy(x => x.index / batchSize)
+        .Select(g => g.Select(x => x.id).ToList());
+
+    foreach (var batch in batches)
+    {
+        var batchRequestContent = new BatchRequestContent();
+        
+        foreach (var userId in batch)
+        {
+            var request = graphClient.Users[userId].ToGetRequestInformation();
+            await batchRequestContent.AddBatchRequestStepAsync(request);
+        }
+
+        var response = await graphClient.Batch.PostAsync(batchRequestContent);
+        // Process response...
+    }
+}
+```
+
+### Parallel Batch Execution
+
+Execute multiple independent batches in parallel:
+
+```csharp
+public async Task<List<User>> GetUsersInParallelBatchesAsync(
+    List<string> userIds)
+{
+    const int batchSize = 20;
+    var batches = userIds
+        .Select((id, index) => new { id, index })
+        .GroupBy(x => x.index / batchSize)
+        .Select(g => g.Select(x => x.id).ToList())
+        .ToList();
+
+    var tasks = batches.Select(async batch =>
+    {
+        var batchRequestContent = new BatchRequestContent();
+        var requestIds = new List<string>();
+
+        foreach (var userId in batch)
+        {
+            var request = graphClient.Users[userId].ToGetRequestInformation();
+            var requestId = await batchRequestContent.AddBatchRequestStepAsync(request);
+            requestIds.Add(requestId);
+        }
+
+        var response = await graphClient.Batch.PostAsync(batchRequestContent);
+
+        var users = new List<User>();
+        foreach (var requestId in requestIds)
+        {
+            try
+            {
+                var user = await response.GetResponseByIdAsync<User>(requestId);
+                users.Add(user);
+            }
+            catch { }
+        }
+
+        return users;
+    });
+
+    var results = await Task.WhenAll(tasks);
+    return results.SelectMany(u => u).ToList();
+}
+```
+
+## Complete Example
+
+```csharp
+using Microsoft.Graph;
+using Microsoft.Graph.Models;
+using Microsoft.Kiota.Abstractions;
+
+public class BatchOperationsManager
+{
+    private readonly GraphServiceClient _graphClient;
+
+    public BatchOperationsManager(GraphServiceClient graphClient)
+    {
+        _graphClient = graphClient;
+    }
+
+    public async Task<DashboardData> LoadUserDashboardAsync()
+    {
+        var batchRequestContent = new BatchRequestContent();
+
+        // Create all requests
+        var userRequest = _graphClient.Me.ToGetRequestInformation();
+        var userRequestId = await batchRequestContent.AddBatchRequestStepAsync(
+            userRequest
+        );
+
+        var messagesRequest = _graphClient.Me.Messages.ToGetRequestInformation(
+            config =>
+            {
+                config.QueryParameters.Filter = "isRead eq false";
+                config.QueryParameters.Top = 10;
+            }
+        );
+        var messagesRequestId = await batchRequestContent.AddBatchRequestStepAsync(
+            messagesRequest
+        );
+
+        var eventsRequest = _graphClient.Me.Events.ToGetRequestInformation(
+            config =>
+            {
+                config.QueryParameters.Top = 10;
+                config.QueryParameters.Orderby = new[] { "start/dateTime" };
+            }
+        );
+        var eventsRequestId = await batchRequestContent.AddBatchRequestStepAsync(
+            eventsRequest
+        );
+
+        var driveRequest = _graphClient.Me.Drive.ToGetRequestInformation();
+        var driveRequestId = await batchRequestContent.AddBatchRequestStepAsync(
+            driveRequest
+        );
+
+        // Execute batch
+        var batchResponse = await _graphClient.Batch.PostAsync(
+            batchRequestContent
+        );
+
+        // Collect all responses
+        var dashboard = new DashboardData();
+
+        try
+        {
+            dashboard.User = await batchResponse.GetResponseByIdAsync<User>(
+                userRequestId
+            );
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to load user: {ex.Message}");
+        }
+
+        try
+        {
+            var messages = await batchResponse.GetResponseByIdAsync<MessageCollectionResponse>(
+                messagesRequestId
+            );
+            dashboard.UnreadMessages = messages.Value;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to load messages: {ex.Message}");
+        }
+
+        try
+        {
+            var events = await batchResponse.GetResponseByIdAsync<EventCollectionResponse>(
+                eventsRequestId
+            );
+            dashboard.UpcomingEvents = events.Value;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to load events: {ex.Message}");
+        }
+
+        try
+        {
+            dashboard.Drive = await batchResponse.GetResponseByIdAsync<Drive>(
+                driveRequestId
+            );
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to load drive: {ex.Message}");
+        }
+
+        return dashboard;
+    }
+
+    public async Task<BatchOperationResult> BulkUpdateUsersAsync(
+        Dictionary<string, User> userUpdates)
+    {
+        var result = new BatchOperationResult();
+        var userIdsList = userUpdates.Keys.ToList();
+
+        // Process in batches of 20
+        for (int i = 0; i < userIdsList.Count; i += 20)
+        {
+            var batch = userIdsList.Skip(i).Take(20).ToList();
+            var batchRequestContent = new BatchRequestContent();
+            var requestMap = new Dictionary<string, string>();
+
+            foreach (var userId in batch)
+            {
+                var update = userUpdates[userId];
+                var request = _graphClient.Users[userId]
+                    .ToPatchRequestInformation(update);
+                
+                var requestId = await batchRequestContent.AddBatchRequestStepAsync(
+                    request
+                );
+                requestMap[requestId] = userId;
+            }
+
+            var batchResponse = await _graphClient.Batch.PostAsync(
+                batchRequestContent
+            );
+
+            // Process responses
+            foreach (var kvp in requestMap)
+            {
+                try
+                {
+                    await batchResponse.GetResponseByIdAsync<User>(kvp.Key);
+                    result.SuccessCount++;
+                    result.SuccessfulIds.Add(kvp.Value);
+                }
+                catch (Exception ex)
+                {
+                    result.FailureCount++;
+                    result.Failures.Add(new OperationFailure
+                    {
+                        Id = kvp.Value,
+                        Error = ex.Message
+                    });
+                }
+            }
+        }
+
+        return result;
+    }
+}
+
+public class DashboardData
+{
+    public User User { get; set; }
+    public List<Message> UnreadMessages { get; set; }
+    public List<Event> UpcomingEvents { get; set; }
+    public Drive Drive { get; set; }
+}
+
+public class BatchOperationResult
+{
+    public int SuccessCount { get; set; }
+    public int FailureCount { get; set; }
+    public List<string> SuccessfulIds { get; set; } = new();
+    public List<OperationFailure> Failures { get; set; } = new();
+}
+
+public class OperationFailure
+{
+    public string Id { get; set; }
+    public string Error { get; set; }
+}
+```
+
+## Best Practices
+
+<Card title="Group Related Operations" icon="layer-group">
+Combine requests that are logically related (e.g., loading a dashboard) for better performance.
+</Card>
+
+<Card title="Handle Partial Failures" icon="triangle-exclamation">
+Always implement error handling for individual requests within a batch, as some may fail while others succeed.
+</Card>
+
+<Card title="Use Dependencies Wisely" icon="arrow-right-arrow-left">
+Only use request dependencies when operations must execute in sequence. Independent operations run in parallel.
+</Card>
+
+<Card title="Monitor Batch Size" icon="ruler">
+Stay within the 20-request limit per batch. For larger operations, split into multiple batches.
+</Card>
+
+## Next Steps
+
+- [Large File Upload](/guides/large-file-upload) - Handle file uploads efficiently
+- [Working with Users](/guides/working-with-users) - Batch user operations
+- [API Reference](/api-reference/batch) - Complete batch API reference

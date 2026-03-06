@@ -1,0 +1,724 @@
+---
+title: Collections and Pagination
+description: Learn how to work with collections, handle pagination, and navigate large result sets in Microsoft Graph
+icon: layer-group
+---
+
+Microsoft Graph API returns collections of items for many requests. The SDK provides strongly-typed collection responses with built-in pagination support to efficiently handle large result sets.
+
+## Understanding Collections
+
+Whenever a request returns multiple items (users, messages, files, etc.), the Microsoft Graph API returns a collection. The SDK generates collection response objects that contain:
+
+- **Value** - A `List<T>` of items in the current page
+- **OdataNextLink** - A URL to get the next page (if available)
+- **OdataCount** - Total count of items (when `$count=true` is used)
+- **AdditionalData** - Dictionary for any additional properties
+
+From collections.md:18-24:
+
+| Property | Description |
+|----------|-------------|
+| **Value** | A `List<Item>` |
+| **NextLink** | A `string` representing the URL used to get to the next page of items, if another page exists. This value will be null if there is not a next page. |
+| **AdditionalData** | An `IDictionary<string, object>` for any additional values returned by the service. |
+
+## Getting a Collection
+
+### Basic Collection Retrieval
+
+```csharp
+using Microsoft.Graph;
+using Microsoft.Graph.Models;
+
+// Get all messages (first page)
+var messages = await graphClient.Me.Messages.GetAsync();
+
+// Access the collection items
+foreach (var message in messages.Value)
+{
+    Console.WriteLine($"{message.Subject} - {message.ReceivedDateTime}");
+}
+
+Console.WriteLine($"Retrieved {messages.Value.Count} messages");
+```
+
+From collections.md:10-14:
+```csharp
+await graphClient
+    .Groups
+    .GetAsync();
+```
+
+<Note>
+  The `GetAsync()` method returns an `IParsable` implementation that typically includes the `Value` property containing the list of items.
+</Note>
+
+### Collection with Query Parameters
+
+```csharp
+// Get top 50 users, sorted by display name
+var users = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Top = 50;
+    config.QueryParameters.Orderby = new[] { "displayName" };
+    config.QueryParameters.Select = new[] { "id", "displayName", "mail" };
+});
+
+foreach (var user in users.Value)
+{
+    Console.WriteLine($"{user.DisplayName} ({user.Mail})");
+}
+```
+
+### Getting Collection Count
+
+```csharp
+// Include total count in response
+var users = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Count = true;
+    config.QueryParameters.Top = 10;
+});
+
+Console.WriteLine($"Total users: {users.OdataCount}");
+Console.WriteLine($"Returned: {users.Value.Count}");
+
+if (users.OdataCount > users.Value.Count)
+{
+    Console.WriteLine($"More pages available: {users.OdataCount - users.Value.Count} items remaining");
+}
+```
+
+## Pagination
+
+When a collection has more items than can be returned in a single response, the API uses pagination. The SDK provides the `OdataNextLink` property to navigate through pages.
+
+### Manual Pagination
+
+```csharp
+// Get first page
+var messages = await graphClient.Me.Messages.GetAsync(config =>
+{
+    config.QueryParameters.Top = 10;
+});
+
+Console.WriteLine($"Page 1: {messages.Value.Count} messages");
+foreach (var message in messages.Value)
+{
+    Console.WriteLine($"  {message.Subject}");
+}
+
+// Check if there's a next page
+if (!string.IsNullOrEmpty(messages.OdataNextLink))
+{
+    Console.WriteLine("\nMore pages available");
+    Console.WriteLine($"Next link: {messages.OdataNextLink}");
+}
+```
+
+### Iterating Through All Pages
+
+```csharp
+var allMessages = new List<Message>();
+var messages = await graphClient.Me.Messages.GetAsync(config =>
+{
+    config.QueryParameters.Top = 50;
+});
+
+// Process first page
+if (messages?.Value != null)
+{
+    allMessages.AddRange(messages.Value);
+    Console.WriteLine($"Retrieved {messages.Value.Count} messages from page 1");
+}
+
+// Get remaining pages
+int pageNumber = 2;
+while (!string.IsNullOrEmpty(messages?.OdataNextLink))
+{
+    // Create request from next link
+    var nextPageRequest = new Microsoft.Graph.Me.Messages.MessagesRequestBuilder(
+        messages.OdataNextLink,
+        graphClient.RequestAdapter
+    );
+    
+    messages = await nextPageRequest.GetAsync();
+    
+    if (messages?.Value != null)
+    {
+        allMessages.AddRange(messages.Value);
+        Console.WriteLine($"Retrieved {messages.Value.Count} messages from page {pageNumber}");
+    }
+    
+    pageNumber++;
+}
+
+Console.WriteLine($"\nTotal messages retrieved: {allMessages.Count}");
+```
+
+### Page Iterator Helper
+
+```csharp
+public class PageIterator<T>
+{
+    public static async Task<List<T>> GetAllPagesAsync<TResponse>(
+        TResponse firstPage,
+        Func<string, Task<TResponse>> getNextPage,
+        Func<TResponse, List<T>> getValue,
+        Func<TResponse, string> getNextLink,
+        int maxPages = int.MaxValue)
+    {
+        var allItems = new List<T>();
+        var currentPage = firstPage;
+        int pageCount = 0;
+        
+        while (currentPage != null && pageCount < maxPages)
+        {
+            var items = getValue(currentPage);
+            if (items != null)
+            {
+                allItems.AddRange(items);
+            }
+            
+            var nextLink = getNextLink(currentPage);
+            if (string.IsNullOrEmpty(nextLink))
+            {
+                break;
+            }
+            
+            currentPage = await getNextPage(nextLink);
+            pageCount++;
+        }
+        
+        return allItems;
+    }
+}
+
+// Usage
+var firstPage = await graphClient.Users.GetAsync(config =>
+    config.QueryParameters.Top = 100);
+
+var allUsers = await PageIterator<User>.GetAllPagesAsync(
+    firstPage,
+    nextLink => new Microsoft.Graph.Users.UsersRequestBuilder(nextLink, graphClient.RequestAdapter).GetAsync(),
+    page => page.Value,
+    page => page.OdataNextLink
+);
+
+Console.WriteLine($"Retrieved {allUsers.Count} users total");
+```
+
+<Warning>
+  Be cautious when retrieving all pages from large collections. This can consume significant memory and API quota. Consider processing pages incrementally or using filtering to reduce result sets.
+</Warning>
+
+## Adding to Collections
+
+Many collections support adding new items using the `PostAsync` method.
+
+### Creating a New Item
+
+From collections.md:29-42:
+
+```csharp
+var groupToCreate = new Group
+{
+    GroupTypes = new List<string> { "Unified" },
+    DisplayName = "Unified group",
+    Description = "Best group ever"
+};
+	
+var newGroup = await graphClient
+    .Groups
+    .PostAsync(groupToCreate);
+```
+
+<Note>
+  From collections.md:44: The method returns the created item on success and throws an `ApiException` on error.
+</Note>
+
+### Creating Multiple Items
+
+```csharp
+// Create multiple messages
+var messagesToCreate = new List<Message>
+{
+    new Message { Subject = "Message 1", Body = new ItemBody { Content = "Content 1" } },
+    new Message { Subject = "Message 2", Body = new ItemBody { Content = "Content 2" } },
+    new Message { Subject = "Message 3", Body = new ItemBody { Content = "Content 3" } }
+};
+
+var createdMessages = new List<Message>();
+foreach (var message in messagesToCreate)
+{
+    var created = await graphClient.Me.Messages.PostAsync(message);
+    createdMessages.Add(created);
+    Console.WriteLine($"Created message: {created.Id}");
+}
+
+Console.WriteLine($"Created {createdMessages.Count} messages");
+```
+
+<Tip>
+  For better performance when creating multiple items, consider using batch requests instead of individual POST operations.
+</Tip>
+
+## Expanding Collections
+
+Use the `$expand` query parameter to include related resources in collection results.
+
+From collections.md:48-55:
+
+```csharp
+var children = await graphClient
+    .Drive
+    .Items["itemId"]
+    .Children
+    .GetAsync(config => 
+        config.QueryParameters.Expand = new[] { "thumbnails" });
+```
+
+### Expanding with Selection
+
+```csharp
+// Get users with their manager details
+var users = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Expand = new[] { "manager($select=displayName,mail)" };
+    config.QueryParameters.Select = new[] { "id", "displayName", "jobTitle" };
+    config.QueryParameters.Top = 20;
+});
+
+foreach (var user in users.Value)
+{
+    Console.WriteLine($"{user.DisplayName} - {user.JobTitle}");
+    
+    if (user.Manager is User manager)
+    {
+        Console.WriteLine($"  Manager: {manager.DisplayName} ({manager.Mail})");
+    }
+}
+```
+
+## Filtering Collections
+
+Reduce the size of collections by filtering on the server side.
+
+```csharp
+// Get only unread messages
+var unreadMessages = await graphClient.Me.Messages.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "isRead eq false";
+    config.QueryParameters.Orderby = new[] { "receivedDateTime desc" };
+});
+
+Console.WriteLine($"You have {unreadMessages.Value.Count} unread messages");
+
+// Get users in specific department
+var engineers = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "department eq 'Engineering'";
+    config.QueryParameters.Select = new[] { "displayName", "mail", "jobTitle" };
+});
+
+foreach (var engineer in engineers.Value)
+{
+    Console.WriteLine($"{engineer.DisplayName} - {engineer.JobTitle}");
+}
+```
+
+## Collection Response Types
+
+### Standard Collection Response
+
+```csharp
+// UserCollectionResponse for users
+var users = await graphClient.Users.GetAsync();
+// Type: UserCollectionResponse
+// Properties: Value (List<User>), OdataNextLink, OdataCount
+
+// MessageCollectionResponse for messages  
+var messages = await graphClient.Me.Messages.GetAsync();
+// Type: MessageCollectionResponse
+// Properties: Value (List<Message>), OdataNextLink, OdataCount
+
+// GroupCollectionResponse for groups
+var groups = await graphClient.Groups.GetAsync();
+// Type: GroupCollectionResponse  
+// Properties: Value (List<Group>), OdataNextLink, OdataCount
+```
+
+### Accessing Collection Properties
+
+```csharp
+var response = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Top = 10;
+    config.QueryParameters.Count = true;
+});
+
+// Value property - the actual items
+List<User> users = response.Value;
+Console.WriteLine($"Items in current page: {users.Count}");
+
+// OdataNextLink - URL for next page
+string nextLink = response.OdataNextLink;
+if (!string.IsNullOrEmpty(nextLink))
+{
+    Console.WriteLine($"Next page available at: {nextLink}");
+}
+
+// OdataCount - total count (when requested)
+long? totalCount = response.OdataCount;
+if (totalCount.HasValue)
+{
+    Console.WriteLine($"Total items: {totalCount.Value}");
+}
+
+// AdditionalData - extra properties
+if (response.AdditionalData?.Any() == true)
+{
+    Console.WriteLine("Additional data:");
+    foreach (var kvp in response.AdditionalData)
+    {
+        Console.WriteLine($"  {kvp.Key}: {kvp.Value}");
+    }
+}
+```
+
+## Delta Queries
+
+Delta queries allow you to track changes in a collection over time.
+
+```csharp
+// Get initial delta
+var deltaResponse = await graphClient.Users.Delta.GetAsync(config =>
+{
+    config.QueryParameters.Select = new[] { "displayName", "mail" };
+});
+
+Console.WriteLine($"Initial sync: {deltaResponse.Value.Count} users");
+
+// Store the delta link for future queries
+string deltaLink = deltaResponse.OdataDeltaLink;
+
+// Later, get only changes since last query
+if (!string.IsNullOrEmpty(deltaLink))
+{
+    var changesBuilder = new Microsoft.Graph.Users.Delta.DeltaRequestBuilder(
+        deltaLink,
+        graphClient.RequestAdapter
+    );
+    
+    var changes = await changesBuilder.GetAsync();
+    Console.WriteLine($"Changes since last sync: {changes.Value.Count} users");
+    
+    foreach (var user in changes.Value)
+    {
+        Console.WriteLine($"Changed: {user.DisplayName}");
+    }
+    
+    // Update delta link
+    deltaLink = changes.OdataDeltaLink;
+}
+```
+
+<Note>
+  Delta queries are not available for all resources. Check the [Microsoft Graph API documentation](https://learn.microsoft.com/graph/delta-query-overview) for supported resources.
+</Note>
+
+## Performance Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use $select to reduce payload">
+    Always select only the properties you need:
+    
+    ```csharp
+    // Good - small payload
+    var users = await graphClient.Users.GetAsync(config =>
+    {
+        config.QueryParameters.Select = new[] { "id", "displayName" };
+        config.QueryParameters.Top = 100;
+    });
+    
+    // Bad - large payload with unnecessary data
+    var users = await graphClient.Users.GetAsync(config =>
+        config.QueryParameters.Top = 100);
+    ```
+  </Accordion>
+  
+  <Accordion title="Use appropriate page sizes">
+    Balance between number of requests and response size:
+    
+    ```csharp
+    // Too small - many requests
+    config.QueryParameters.Top = 10;
+    
+    // Too large - slow responses, memory issues
+    config.QueryParameters.Top = 999;
+    
+    // Good - balanced
+    config.QueryParameters.Top = 100; // or 50-200 depending on item size
+    ```
+  </Accordion>
+  
+  <Accordion title="Filter on the server, not client">
+    Reduce data transfer by filtering server-side:
+    
+    ```csharp
+    // Good - server-side filter
+    var engineers = await graphClient.Users.GetAsync(config =>
+        config.QueryParameters.Filter = "department eq 'Engineering'");
+    
+    // Bad - client-side filter (downloads all users)
+    var allUsers = await graphClient.Users.GetAsync();
+    var engineers = allUsers.Value.Where(u => u.Department == "Engineering");
+    ```
+  </Accordion>
+  
+  <Accordion title="Process pages incrementally">
+    Don't load all pages into memory:
+    
+    ```csharp
+    // Good - process page by page
+    var users = await graphClient.Users.GetAsync(config =>
+        config.QueryParameters.Top = 100);
+    
+    do
+    {
+        await ProcessUsersAsync(users.Value); // Process current page
+        
+        if (!string.IsNullOrEmpty(users.OdataNextLink))
+        {
+            var nextBuilder = new Microsoft.Graph.Users.UsersRequestBuilder(
+                users.OdataNextLink,
+                graphClient.RequestAdapter
+            );
+            users = await nextBuilder.GetAsync();
+        }
+        else
+        {
+            break;
+        }
+    } while (true);
+    ```
+  </Accordion>
+  
+  <Accordion title="Use delta queries for sync scenarios">
+    When tracking changes over time, use delta queries:
+    
+    ```csharp
+    // Initial sync
+    var delta = await graphClient.Users.Delta.GetAsync();
+    await ProcessUsersAsync(delta.Value);
+    string deltaLink = delta.OdataDeltaLink;
+    
+    // Later - only get changes
+    var changes = await new Microsoft.Graph.Users.Delta.DeltaRequestBuilder(
+        deltaLink,
+        graphClient.RequestAdapter
+    ).GetAsync();
+    await ProcessChangesAsync(changes.Value);
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Common Patterns
+
+### Get All Items (Small Collections)
+
+```csharp
+public async Task<List<T>> GetAllItemsAsync<T>(
+    Func<Task<IEnumerable<T>>> getFirstPage,
+    Func<string, Task<IEnumerable<T>>> getNextPage,
+    Func<IEnumerable<T>, string> getNextLink)
+{
+    var allItems = new List<T>();
+    var currentPage = await getFirstPage();
+    
+    while (currentPage != null)
+    {
+        allItems.AddRange(currentPage);
+        
+        var nextLink = getNextLink(currentPage);
+        if (string.IsNullOrEmpty(nextLink))
+            break;
+            
+        currentPage = await getNextPage(nextLink);
+    }
+    
+    return allItems;
+}
+```
+
+### Process Large Collections
+
+```csharp
+public async Task ProcessLargeCollectionAsync<T>(
+    Func<Task<CollectionResponse<T>>> getFirstPage,
+    Func<string, Task<CollectionResponse<T>>> getNextPage,
+    Func<List<T>, Task> processPage,
+    int maxPages = int.MaxValue)
+{
+    var page = await getFirstPage();
+    int pageCount = 0;
+    
+    while (page?.Value != null && pageCount < maxPages)
+    {
+        await processPage(page.Value);
+        pageCount++;
+        
+        if (string.IsNullOrEmpty(page.OdataNextLink))
+            break;
+            
+        page = await getNextPage(page.OdataNextLink);
+    }
+    
+    Console.WriteLine($"Processed {pageCount} pages");
+}
+
+// Usage
+await ProcessLargeCollectionAsync(
+    () => graphClient.Users.GetAsync(config => config.QueryParameters.Top = 100),
+    nextLink => new Microsoft.Graph.Users.UsersRequestBuilder(nextLink, graphClient.RequestAdapter).GetAsync(),
+    async users => 
+    {
+        foreach (var user in users)
+        {
+            await ProcessUserAsync(user);
+        }
+    }
+);
+```
+
+### Paginated Display
+
+```csharp
+public class PaginatedResult<T>
+{
+    public List<T> Items { get; set; }
+    public string NextPageToken { get; set; }
+    public bool HasNextPage => !string.IsNullOrEmpty(NextPageToken);
+    public long? TotalCount { get; set; }
+}
+
+public async Task<PaginatedResult<User>> GetUserPageAsync(
+    string nextPageToken = null,
+    int pageSize = 20)
+{
+    Microsoft.Graph.Models.UserCollectionResponse response;
+    
+    if (string.IsNullOrEmpty(nextPageToken))
+    {
+        // First page
+        response = await graphClient.Users.GetAsync(config =>
+        {
+            config.QueryParameters.Top = pageSize;
+            config.QueryParameters.Count = true;
+            config.QueryParameters.Orderby = new[] { "displayName" };
+        });
+    }
+    else
+    {
+        // Subsequent pages
+        var builder = new Microsoft.Graph.Users.UsersRequestBuilder(
+            nextPageToken,
+            graphClient.RequestAdapter
+        );
+        response = await builder.GetAsync();
+    }
+    
+    return new PaginatedResult<User>
+    {
+        Items = response.Value,
+        NextPageToken = response.OdataNextLink,
+        TotalCount = response.OdataCount
+    };
+}
+
+// Usage
+var page1 = await GetUserPageAsync();
+Console.WriteLine($"Page 1: {page1.Items.Count} of {page1.TotalCount} total");
+
+if (page1.HasNextPage)
+{
+    var page2 = await GetUserPageAsync(page1.NextPageToken);
+    Console.WriteLine($"Page 2: {page2.Items.Count} users");
+}
+```
+
+## Troubleshooting
+
+### Empty Collections
+
+```csharp
+var users = await graphClient.Users.GetAsync();
+
+if (users?.Value == null || users.Value.Count == 0)
+{
+    Console.WriteLine("No users found or empty response");
+    
+    // Check if it's truly empty or filtered out
+    var allUsers = await graphClient.Users.GetAsync(config =>
+        config.QueryParameters.Count = true);
+    
+    Console.WriteLine($"Total users in directory: {allUsers.OdataCount}");
+}
+```
+
+### Next Link Not Working
+
+```csharp
+// Ensure you're using the full next link URL
+var firstPage = await graphClient.Users.GetAsync();
+
+if (!string.IsNullOrEmpty(firstPage.OdataNextLink))
+{
+    // Correct - use the full URL
+    var nextBuilder = new Microsoft.Graph.Users.UsersRequestBuilder(
+        firstPage.OdataNextLink,
+        graphClient.RequestAdapter
+    );
+    var nextPage = await nextBuilder.GetAsync();
+}
+```
+
+### Missing Count
+
+```csharp
+// OdataCount is null
+var users = await graphClient.Users.GetAsync();
+Console.WriteLine(users.OdataCount); // null
+
+// Solution: Request count explicitly
+var usersWithCount = await graphClient.Users.GetAsync(config =>
+    config.QueryParameters.Count = true);
+Console.WriteLine(usersWithCount.OdataCount); // Has value
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Query Parameters" icon="filter" href="/core-concepts/query-parameters">
+    Learn more about filtering and sorting collections
+  </Card>
+  
+  <Card title="Error Handling" icon="triangle-exclamation" href="/core-concepts/error-handling">
+    Handle errors when working with collections
+  </Card>
+  
+  <Card title="Batch Requests" icon="layer-group" href="/guides/batch-requests">
+    Efficiently process multiple collection operations
+  </Card>
+  
+  <Card title="Performance" icon="gauge-high" href="/guides/performance">
+    Optimize collection queries for performance
+  </Card>
+</CardGroup>
+
+## Additional Resources
+
+- [Paging Microsoft Graph data](https://learn.microsoft.com/graph/paging)
+- [Use delta query to track changes](https://learn.microsoft.com/graph/delta-query-overview)
+- [Microsoft Graph Data Connect](https://learn.microsoft.com/graph/data-connect-concept-overview)

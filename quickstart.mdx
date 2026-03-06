@@ -1,80 +1,635 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start
+description: Build your first Microsoft Graph application in minutes with this step-by-step guide
 ---
 
-## Get started in three steps
-
-Get your documentation site running locally and make your first customization.
-
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+This quick start guide will walk you through creating a complete Microsoft Graph .NET application from scratch. In just a few minutes, you'll register an app, authenticate, and make your first API call.
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+This guide uses client credentials authentication for simplicity. For production applications with user interaction, see the [authentication guide](/authentication) for other authentication flows.
 </Note>
+
+## What You'll Build
+
+By the end of this guide, you'll have a working console application that:
+- Authenticates to Microsoft Graph using client credentials
+- Creates a GraphServiceClient instance
+- Retrieves user information from your Azure AD tenant
+- Handles errors gracefully
+
+<Steps>
+
+<Step title="Register Your Application in Azure Portal">
+
+Before you can call Microsoft Graph, you need to register your application in Azure Active Directory.
+
+### Navigate to Azure Portal
+
+1. Go to the [Microsoft Application Registration Portal](https://aka.ms/appregistrations)
+2. Sign in with your Microsoft 365 account (work or school account)
+
+### Create a New Registration
+
+1. Click **New registration**
+2. Enter an application name (e.g., "My Graph App")
+3. Select **Accounts in this organizational directory only** for the supported account types
+4. Leave the Redirect URI blank for now
+5. Click **Register**
+
+### Save Your Application Details
+
+After registration, you'll see the application overview page. Save these values:
+
+- **Application (client) ID** - You'll need this for authentication
+- **Directory (tenant) ID** - You'll need this for authentication
+
+<Tip>
+Keep these IDs secure. Store them in environment variables or Azure Key Vault for production applications, never hardcode them in your source code.
+</Tip>
+
+### Create a Client Secret
+
+1. In the left menu, click **Certificates & secrets**
+2. Click **New client secret**
+3. Enter a description (e.g., "App Secret")
+4. Select an expiration period (6 months, 12 months, or 24 months)
+5. Click **Add**
+6. **Important:** Copy the secret **Value** immediately - you won't be able to see it again!
+
+<Warning>
+The client secret is shown only once. If you lose it, you'll need to create a new one. Store it securely!
+</Warning>
+
+### Grant API Permissions
+
+1. In the left menu, click **API permissions**
+2. Click **Add a permission**
+3. Select **Microsoft Graph**
+4. Select **Application permissions** (not Delegated permissions)
+5. Search for and select **User.Read.All**
+6. Click **Add permissions**
+7. Click **Grant admin consent for [Your Organization]** (requires admin rights)
+8. Confirm by clicking **Yes**
+
+<Info>
+**Application permissions** allow your app to access data without a signed-in user. This is perfect for background services and automation. For interactive apps, use **Delegated permissions** instead.
+</Info>
+
+</Step>
+
+<Step title="Install Required Packages">
+
+Create a new .NET console application and install the SDK:
+
+### Create a New Project
+
+```bash
+dotnet new console -n MyGraphApp
+cd MyGraphApp
+```
+
+### Install Microsoft Graph SDK
+
+```bash
+dotnet add package Microsoft.Graph
+```
+
+### Install Azure Identity
+
+```bash
+dotnet add package Azure.Identity
+```
+
+### Verify Installation
+
+Your `.csproj` file should now include:
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Graph" Version="5.*" />
+    <PackageReference Include="Azure.Identity" Version="1.*" />
+  </ItemGroup>
+</Project>
+```
+
+</Step>
+
+<Step title="Configure Authentication">
+
+Now configure your application to authenticate with Microsoft Graph using the credentials from Step 1.
+
+### Store Configuration Securely
+
+Create an `appsettings.json` file (add to `.gitignore`):
+
+```json
+{
+  "AzureAd": {
+    "TenantId": "YOUR_TENANT_ID",
+    "ClientId": "YOUR_CLIENT_ID",
+    "ClientSecret": "YOUR_CLIENT_SECRET"
+  }
+}
+```
+
+<Warning>
+Never commit credentials to source control! Add `appsettings.json` to your `.gitignore` file. For production, use Azure Key Vault or environment variables.
+</Warning>
+
+### Alternative: Use Environment Variables
+
+Set environment variables (recommended for production):
+
+**Windows (PowerShell):**
+```powershell
+$env:AZURE_TENANT_ID="your-tenant-id"
+$env:AZURE_CLIENT_ID="your-client-id"
+$env:AZURE_CLIENT_SECRET="your-client-secret"
+```
+
+**Linux/macOS:**
+```bash
+export AZURE_TENANT_ID="your-tenant-id"
+export AZURE_CLIENT_ID="your-client-id"
+export AZURE_CLIENT_SECRET="your-client-secret"
+```
+
+</Step>
+
+<Step title="Create GraphServiceClient">
+
+Update `Program.cs` to create and configure the GraphServiceClient:
+
+```csharp
+using Azure.Identity;
+using Microsoft.Graph;
+using Microsoft.Graph.Models;
+
+// Configuration - replace with your values or use environment variables
+var tenantId = Environment.GetEnvironmentVariable("AZURE_TENANT_ID") ?? "YOUR_TENANT_ID";
+var clientId = Environment.GetEnvironmentVariable("AZURE_CLIENT_ID") ?? "YOUR_CLIENT_ID";
+var clientSecret = Environment.GetEnvironmentVariable("AZURE_CLIENT_SECRET") ?? "YOUR_CLIENT_SECRET";
+
+// Create authentication provider
+var credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+
+// Create Graph client with the default scopes for app-only authentication
+var graphClient = new GraphServiceClient(credential);
+
+Console.WriteLine("Microsoft Graph client created successfully!");
+```
+
+### Understanding the Code
+
+Let's break down what's happening:
+
+1. **ClientSecretCredential** - Creates an authentication provider using client credentials flow
+2. **GraphServiceClient** - The main entry point for all Microsoft Graph operations
+3. The credential handles token acquisition automatically when you make API calls
+
+<Info>
+The SDK automatically uses the scope `https://graph.microsoft.com/.default` for application permissions, so you don't need to specify scopes explicitly.
+</Info>
+
+</Step>
+
+<Step title="Make Your First API Call">
+
+Now let's retrieve user information from Microsoft Graph!
+
+### Get a Specific User
+
+Add this code to `Program.cs`:
+
+```csharp
+using Azure.Identity;
+using Microsoft.Graph;
+using Microsoft.Graph.Models;
+using Microsoft.Graph.Models.ODataErrors;
+
+// Configuration
+var tenantId = Environment.GetEnvironmentVariable("AZURE_TENANT_ID") ?? "YOUR_TENANT_ID";
+var clientId = Environment.GetEnvironmentVariable("AZURE_CLIENT_ID") ?? "YOUR_CLIENT_ID";
+var clientSecret = Environment.GetEnvironmentVariable("AZURE_CLIENT_SECRET") ?? "YOUR_CLIENT_SECRET";
+
+// Create Graph client
+var credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+var graphClient = new GraphServiceClient(credential);
+
+try
+{
+    Console.WriteLine("Fetching users from Microsoft Graph...\n");
+    
+    // Get the first 5 users
+    var users = await graphClient.Users.GetAsync(requestConfiguration =>
+    {
+        requestConfiguration.QueryParameters.Top = 5;
+        requestConfiguration.QueryParameters.Select = new[] { "displayName", "mail", "userPrincipalName" };
+        requestConfiguration.QueryParameters.OrderBy = new[] { "displayName" };
+    });
+
+    if (users?.Value != null && users.Value.Count > 0)
+    {
+        Console.WriteLine($"Found {users.Value.Count} users:\n");
+        
+        foreach (var user in users.Value)
+        {
+            Console.WriteLine($"Name: {user.DisplayName}");
+            Console.WriteLine($"Email: {user.Mail ?? user.UserPrincipalName}");
+            Console.WriteLine($"UPN: {user.UserPrincipalName}");
+            Console.WriteLine();
+        }
+    }
+    else
+    {
+        Console.WriteLine("No users found.");
+    }
+}
+catch (ODataError odataError)
+{
+    Console.WriteLine($"Error calling Microsoft Graph:");
+    Console.WriteLine($"Code: {odataError.Error?.Code}");
+    Console.WriteLine($"Message: {odataError.Error?.Message}");
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"Unexpected error: {ex.Message}");
+}
+```
+
+### Run Your Application
+
+```bash
+dotnet run
+```
+
+### Expected Output
+
+```
+Fetching users from Microsoft Graph...
+
+Found 5 users:
+
+Name: Alice Johnson
+Email: alice@contoso.com
+UPN: alice@contoso.com
+
+Name: Bob Smith
+Email: bob@contoso.com
+UPN: bob@contoso.com
+
+Name: Carol Williams
+Email: carol@contoso.com
+UPN: carol@contoso.com
+```
+
+<Tip>
+If you see an authentication error, double-check that you granted admin consent for the User.Read.All permission in the Azure Portal.
+</Tip>
+
+</Step>
+
+</Steps>
+
+## Complete Working Example
+
+Here's the complete, production-ready code with error handling and best practices:
+
+<CodeGroup>
+
+```csharp Program.cs
+using Azure.Identity;
+using Microsoft.Graph;
+using Microsoft.Graph.Models;
+using Microsoft.Graph.Models.ODataErrors;
+using System;
+using System.Threading.Tasks;
+
+namespace MyGraphApp
+{
+    class Program
+    {
+        static async Task Main(string[] args)
+        {
+            // Load configuration from environment variables
+            var tenantId = Environment.GetEnvironmentVariable("AZURE_TENANT_ID");
+            var clientId = Environment.GetEnvironmentVariable("AZURE_CLIENT_ID");
+            var clientSecret = Environment.GetEnvironmentVariable("AZURE_CLIENT_SECRET");
+
+            // Validate configuration
+            if (string.IsNullOrEmpty(tenantId) || 
+                string.IsNullOrEmpty(clientId) || 
+                string.IsNullOrEmpty(clientSecret))
+            {
+                Console.WriteLine("Error: Missing required environment variables.");
+                Console.WriteLine("Please set AZURE_TENANT_ID, AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET");
+                return;
+            }
+
+            try
+            {
+                // Create Graph client
+                var credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+                var graphClient = new GraphServiceClient(credential);
+
+                Console.WriteLine("Microsoft Graph .NET SDK Quick Start");
+                Console.WriteLine("=====================================\n");
+
+                // Get users
+                await GetUsersAsync(graphClient);
+
+                // Get groups
+                await GetGroupsAsync(graphClient);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Fatal error: {ex.Message}");
+            }
+        }
+
+        static async Task GetUsersAsync(GraphServiceClient graphClient)
+        {
+            try
+            {
+                Console.WriteLine("Fetching users...\n");
+
+                var users = await graphClient.Users.GetAsync(requestConfiguration =>
+                {
+                    requestConfiguration.QueryParameters.Top = 5;
+                    requestConfiguration.QueryParameters.Select = 
+                        new[] { "displayName", "mail", "userPrincipalName", "jobTitle" };
+                    requestConfiguration.QueryParameters.OrderBy = new[] { "displayName" };
+                });
+
+                if (users?.Value != null)
+                {
+                    Console.WriteLine($"Found {users.Value.Count} users:\n");
+                    
+                    foreach (var user in users.Value)
+                    {
+                        Console.WriteLine($"  {user.DisplayName}");
+                        Console.WriteLine($"    Email: {user.Mail ?? user.UserPrincipalName}");
+                        
+                        if (!string.IsNullOrEmpty(user.JobTitle))
+                        {
+                            Console.WriteLine($"    Title: {user.JobTitle}");
+                        }
+                        
+                        Console.WriteLine();
+                    }
+                }
+            }
+            catch (ODataError odataError)
+            {
+                Console.WriteLine($"Error fetching users:");
+                Console.WriteLine($"  Code: {odataError.Error?.Code}");
+                Console.WriteLine($"  Message: {odataError.Error?.Message}");
+                Console.WriteLine();
+            }
+        }
+
+        static async Task GetGroupsAsync(GraphServiceClient graphClient)
+        {
+            try
+            {
+                Console.WriteLine("Fetching groups...\n");
+
+                var groups = await graphClient.Groups.GetAsync(requestConfiguration =>
+                {
+                    requestConfiguration.QueryParameters.Top = 5;
+                    requestConfiguration.QueryParameters.Select = 
+                        new[] { "displayName", "description", "mailEnabled" };
+                    requestConfiguration.QueryParameters.OrderBy = new[] { "displayName" };
+                });
+
+                if (groups?.Value != null)
+                {
+                    Console.WriteLine($"Found {groups.Value.Count} groups:\n");
+                    
+                    foreach (var group in groups.Value)
+                    {
+                        Console.WriteLine($"  {group.DisplayName}");
+                        
+                        if (!string.IsNullOrEmpty(group.Description))
+                        {
+                            Console.WriteLine($"    Description: {group.Description}");
+                        }
+                        
+                        Console.WriteLine($"    Mail Enabled: {group.MailEnabled}");
+                        Console.WriteLine();
+                    }
+                }
+            }
+            catch (ODataError odataError)
+            {
+                Console.WriteLine($"Error fetching groups:");
+                Console.WriteLine($"  Code: {odataError.Error?.Code}");
+                Console.WriteLine($"  Message: {odataError.Error?.Message}");
+                Console.WriteLine();
+            }
+        }
+    }
+}
+```
+
+```xml MyGraphApp.csproj
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Graph" Version="5.*" />
+    <PackageReference Include="Azure.Identity" Version="1.*" />
+  </ItemGroup>
+</Project>
+```
+
+```bash .gitignore
+# Build results
+bin/
+obj/
+
+# Configuration files with secrets
+appsettings.json
+appsettings.*.json
+
+# User-specific files
+*.suo
+*.user
+.vs/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+```
+
+</CodeGroup>
+
+## Understanding Query Parameters
+
+The SDK provides a fluent API for adding query parameters:
+
+```csharp
+var users = await graphClient.Users.GetAsync(requestConfiguration =>
+{
+    // Limit number of results
+    requestConfiguration.QueryParameters.Top = 10;
+    
+    // Select specific properties
+    requestConfiguration.QueryParameters.Select = new[] { "displayName", "mail" };
+    
+    // Filter results
+    requestConfiguration.QueryParameters.Filter = "startswith(displayName,'A')";
+    
+    // Sort results
+    requestConfiguration.QueryParameters.OrderBy = new[] { "displayName" };
+    
+    // Add custom headers (e.g., for consistency level)
+    requestConfiguration.Headers.Add("ConsistencyLevel", "eventual");
+});
+```
+
+## Common API Calls
+
+Here are more examples of common operations:
+
+### Get Current User (Delegated Permissions)
+
+```csharp
+// Only works with delegated permissions (interactive auth)
+var me = await graphClient.Me.GetAsync();
+Console.WriteLine($"Signed in as: {me.DisplayName}");
+```
+
+### Get User's Messages
+
+```csharp
+var messages = await graphClient.Users["user-id"].Messages.GetAsync(requestConfiguration =>
+{
+    requestConfiguration.QueryParameters.Top = 10;
+    requestConfiguration.QueryParameters.Select = 
+        new[] { "subject", "from", "receivedDateTime" };
+    requestConfiguration.QueryParameters.OrderBy = 
+        new[] { "receivedDateTime DESC" };
+});
+
+foreach (var message in messages.Value)
+{
+    Console.WriteLine($"Subject: {message.Subject}");
+    Console.WriteLine($"From: {message.From?.EmailAddress?.Address}");
+    Console.WriteLine($"Received: {message.ReceivedDateTime}");
+    Console.WriteLine();
+}
+```
+
+### Get User's Calendar Events
+
+```csharp
+var events = await graphClient.Users["user-id"].Events.GetAsync(requestConfiguration =>
+{
+    requestConfiguration.QueryParameters.Top = 10;
+    requestConfiguration.QueryParameters.Select = 
+        new[] { "subject", "start", "end", "organizer" };
+    requestConfiguration.QueryParameters.OrderBy = new[] { "start/dateTime" };
+});
+
+foreach (var evt in events.Value)
+{
+    Console.WriteLine($"Event: {evt.Subject}");
+    Console.WriteLine($"Start: {evt.Start?.DateTime}");
+    Console.WriteLine($"End: {evt.End?.DateTime}");
+    Console.WriteLine();
+}
+```
+
+### Get User's OneDrive Files
+
+```csharp
+// Get the user's drive
+var drive = await graphClient.Users["user-id"].Drive.GetAsync();
+var driveId = drive.Id;
+
+// Get root folder items
+var items = await graphClient.Drives[driveId].Items["root"].Children.GetAsync();
+
+foreach (var item in items.Value)
+{
+    Console.WriteLine($"Name: {item.Name}");
+    Console.WriteLine($"Type: {(item.Folder != null ? "Folder" : "File")}");
+    Console.WriteLine($"Size: {item.Size} bytes");
+    Console.WriteLine();
+}
+```
+
+## Troubleshooting
+
+### Authentication Failed
+
+**Error:** `401 Unauthorized` or `AADSTS700016: Application not found`
+
+**Solution:**
+- Verify your tenant ID, client ID, and client secret are correct
+- Ensure you granted admin consent for the required permissions
+- Check that the application is enabled in Azure AD
+
+### Insufficient Privileges
+
+**Error:** `403 Forbidden` or `Insufficient privileges to complete the operation`
+
+**Solution:**
+- Verify you granted the correct API permissions (e.g., User.Read.All)
+- Ensure you clicked "Grant admin consent" in the Azure Portal
+- Wait a few minutes for permissions to propagate
+
+### User Not Found
+
+**Error:** `404 Not Found` or `Resource not found for the segment 'users'`
+
+**Solution:**
+- Verify the user ID or UPN is correct
+- Ensure the user exists in your tenant
+- Check that your app has permission to read users
+
+## Next Steps
+
+Congratulations! You've successfully built your first Microsoft Graph application. Here's what to explore next:
+
+<CardGroup cols={2}>
+  <Card title="Authentication Methods" icon="key" href="/authentication">
+    Learn about interactive authentication, device code flow, and more
+  </Card>
+  
+  <Card title="Core Concepts" icon="book" href="/core-concepts">
+    Understand request builders, models, and collections in depth
+  </Card>
+  
+  <Card title="Error Handling" icon="triangle-exclamation" href="/error-handling">
+    Learn best practices for handling errors and retries
+  </Card>
+  
+  <Card title="Working with Collections" icon="list" href="/collections">
+    Master paging, filtering, and working with large result sets
+  </Card>
+</CardGroup>
+
+## Additional Resources
+
+- [Microsoft Graph API Documentation](https://docs.microsoft.com/en-us/graph/api/overview)
+- [Microsoft Graph Explorer](https://developer.microsoft.com/en-us/graph/graph-explorer) - Test API calls in your browser
+- [Sample Applications](https://github.com/microsoftgraph/msgraph-sdk-dotnet#sample-applications)
+- [Azure AD App Registration Best Practices](https://docs.microsoft.com/en-us/azure/active-directory/develop/security-best-practices-for-app-registration)
+
+<Tip>
+The [Microsoft Graph Explorer](https://developer.microsoft.com/en-us/graph/graph-explorer) is a great tool for experimenting with API calls before implementing them in your code!
+</Tip>

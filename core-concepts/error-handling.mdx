@@ -1,0 +1,751 @@
+---
+title: Error Handling
+description: Learn how to handle errors and exceptions when using the Microsoft Graph .NET SDK
+icon: triangle-exclamation
+---
+
+Proper error handling is essential for building robust applications with the Microsoft Graph SDK. The SDK throws `ODataError` exceptions that contain detailed information about failures returned by the Microsoft Graph service.
+
+## Overview
+
+From errors.md:1-6:
+
+> Errors in the Microsoft Graph .NET Client Library behave like errors returned from the Microsoft Graph service. You can read more about them [here](https://learn.microsoft.com/en-us/graph/errors).
+>
+> Anytime you make a request against the service there is the potential for an error. In the case of an error, the request will throw a `ODataError` exception that contains the service error details.
+
+## ODataError Exception
+
+The SDK throws `ODataError` exceptions (from the `Microsoft.Graph.Models.ODataErrors` namespace) when API calls fail.
+
+### Basic Error Handling
+
+From errors.md:8-19:
+
+```csharp
+using Microsoft.Graph.Models.ODataErrors;
+
+try
+{
+    await graphClient.Me.PatchAsync(user);
+}
+catch (ODataError odataError)
+{
+    Console.WriteLine(odataError.Error?.Code);
+    Console.WriteLine(odataError.Error?.Message);
+    throw;
+}
+```
+
+### Exception Properties
+
+```csharp
+try
+{
+    var user = await graphClient.Users["invalid-id"].GetAsync();
+}
+catch (ODataError ex)
+{
+    // HTTP status code
+    Console.WriteLine($"Status Code: {ex.ResponseStatusCode}");
+    
+    // Error code (e.g., "Request_ResourceNotFound")
+    Console.WriteLine($"Error Code: {ex.Error?.Code}");
+    
+    // Human-readable error message
+    Console.WriteLine($"Message: {ex.Error?.Message}");
+    
+    // Request ID for debugging with Microsoft support
+    Console.WriteLine($"Request ID: {ex.Error?.InnerError?.RequestId}");
+    
+    // Timestamp of the error
+    Console.WriteLine($"Date: {ex.Error?.InnerError?.Date}");
+    
+    // Additional details
+    if (ex.Error?.Details != null)
+    {
+        foreach (var detail in ex.Error.Details)
+        {
+            Console.WriteLine($"Detail: {detail.Code} - {detail.Message}");
+        }
+    }
+}
+```
+
+## Checking Status Codes
+
+From errors.md:22-31:
+
+```csharp
+using System.Net;
+using Microsoft.Graph.Models.ODataErrors;
+
+catch (ODataError odataError) when (odataError.ResponseStatusCode == (int)HttpStatusCode.NotFound)
+{
+    // Handle 404 status code
+}
+```
+
+### Common HTTP Status Codes
+
+```csharp
+try
+{
+    var result = await graphClient.Me.GetAsync();
+}
+catch (ODataError ex) when (ex.ResponseStatusCode == 400)
+{
+    Console.WriteLine("Bad Request - Invalid request syntax");
+}
+catch (ODataError ex) when (ex.ResponseStatusCode == 401)
+{
+    Console.WriteLine("Unauthorized - Authentication failed or token expired");
+}
+catch (ODataError ex) when (ex.ResponseStatusCode == 403)
+{
+    Console.WriteLine("Forbidden - Insufficient permissions");
+}
+catch (ODataError ex) when (ex.ResponseStatusCode == 404)
+{
+    Console.WriteLine("Not Found - Resource doesn't exist");
+}
+catch (ODataError ex) when (ex.ResponseStatusCode == 429)
+{
+    Console.WriteLine("Too Many Requests - Throttled");
+    
+    // Check Retry-After header
+    if (ex.Error?.InnerError?.AdditionalData?.TryGetValue("Retry-After", out var retryAfter) == true)
+    {
+        Console.WriteLine($"Retry after: {retryAfter} seconds");
+    }
+}
+catch (ODataError ex) when (ex.ResponseStatusCode == 500)
+{
+    Console.WriteLine("Internal Server Error - Service issue");
+}
+catch (ODataError ex) when (ex.ResponseStatusCode == 503)
+{
+    Console.WriteLine("Service Unavailable - Service temporarily down");
+}
+```
+
+## Checking Error Codes
+
+From errors.md:33-42:
+
+```csharp
+using Microsoft.Graph;
+using Microsoft.Graph.Models.ODataErrors;
+
+catch (ODataError odataError) when (
+    odataError.Error.Code.Equals(
+        GraphErrorCode.AccessDenied.ToString(),
+        StringComparison.OrdinalIgnoreCase))
+{
+    // Handle access denied error
+}
+```
+
+From errors.md:44:
+> Common error codes are defined in [GraphErrorCode.cs](../src/Microsoft.Graph/Enums/GraphErrorCode.cs).
+
+### Graph Error Codes
+
+From GraphErrorCode.cs:11-144, here are common error codes:
+
+```csharp
+using Microsoft.Graph;
+using Microsoft.Graph.Models.ODataErrors;
+
+try
+{
+    var result = await graphClient.Me.GetAsync();
+}
+// Access and authentication errors
+catch (ODataError ex) when (IsErrorCode(ex, GraphErrorCode.AccessDenied))
+{
+    Console.WriteLine("Access denied - insufficient permissions");
+}
+catch (ODataError ex) when (IsErrorCode(ex, GraphErrorCode.Unauthenticated))
+{
+    Console.WriteLine("Not authenticated - token missing or invalid");
+}
+catch (ODataError ex) when (IsErrorCode(ex, GraphErrorCode.AuthenticationFailure))
+{
+    Console.WriteLine("Authentication failed");
+}
+// Resource errors
+catch (ODataError ex) when (IsErrorCode(ex, GraphErrorCode.ItemNotFound))
+{
+    Console.WriteLine("Item not found");
+}
+catch (ODataError ex) when (IsErrorCode(ex, GraphErrorCode.ResourceModified))
+{
+    Console.WriteLine("Resource was modified - retry with latest version");
+}
+catch (ODataError ex) when (IsErrorCode(ex, GraphErrorCode.NameAlreadyExists))
+{
+    Console.WriteLine("Item with this name already exists");
+}
+// Request errors
+catch (ODataError ex) when (IsErrorCode(ex, GraphErrorCode.InvalidRequest))
+{
+    Console.WriteLine("Invalid request format or parameters");
+}
+catch (ODataError ex) when (IsErrorCode(ex, GraphErrorCode.InvalidRange))
+{
+    Console.WriteLine("Invalid byte range specified");
+}
+catch (ODataError ex) when (IsErrorCode(ex, GraphErrorCode.MalformedEntityTag))
+{
+    Console.WriteLine("ETag is malformed - must be quoted string");
+}
+// Throttling errors
+catch (ODataError ex) when (IsErrorCode(ex, GraphErrorCode.ThrottledRequest))
+{
+    Console.WriteLine("Request throttled - too many requests");
+    await HandleThrottlingAsync(ex);
+}
+catch (ODataError ex) when (IsErrorCode(ex, GraphErrorCode.ActivityLimitReached))
+{
+    Console.WriteLine("Activity limit reached - throttled");
+}
+// Service errors
+catch (ODataError ex) when (IsErrorCode(ex, GraphErrorCode.ServiceNotAvailable))
+{
+    Console.WriteLine("Service temporarily unavailable");
+}
+catch (ODataError ex) when (IsErrorCode(ex, GraphErrorCode.Timeout))
+{
+    Console.WriteLine("Request timed out");
+}
+catch (ODataError ex) when (IsErrorCode(ex, GraphErrorCode.GeneralException))
+{
+    Console.WriteLine("General error occurred");
+}
+
+// Helper method
+static bool IsErrorCode(ODataError ex, GraphErrorCode errorCode)
+{
+    return ex.Error?.Code?.Equals(
+        errorCode.ToString(),
+        StringComparison.OrdinalIgnoreCase) == true;
+}
+```
+
+## Retry Logic
+
+### Basic Retry Pattern
+
+```csharp
+public async Task<T> ExecuteWithRetryAsync<T>(
+    Func<Task<T>> operation,
+    int maxRetries = 3,
+    int delayMilliseconds = 1000)
+{
+    for (int i = 0; i < maxRetries; i++)
+    {
+        try
+        {
+            return await operation();
+        }
+        catch (ODataError ex) when (IsTransientError(ex) && i < maxRetries - 1)
+        {
+            Console.WriteLine($"Attempt {i + 1} failed. Retrying after {delayMilliseconds}ms...");
+            await Task.Delay(delayMilliseconds);
+            
+            // Exponential backoff
+            delayMilliseconds *= 2;
+        }
+    }
+    
+    // Final attempt without catching
+    return await operation();
+}
+
+static bool IsTransientError(ODataError ex)
+{
+    // Retry on server errors and throttling
+    return ex.ResponseStatusCode >= 500 ||
+           ex.ResponseStatusCode == 429 ||
+           ex.Error?.Code?.Equals(
+               GraphErrorCode.ServiceNotAvailable.ToString(),
+               StringComparison.OrdinalIgnoreCase) == true;
+}
+
+// Usage
+var user = await ExecuteWithRetryAsync(
+    () => graphClient.Users["user-id"].GetAsync()
+);
+```
+
+### Handling Throttling with Retry-After
+
+```csharp
+public async Task<T> ExecuteWithThrottlingAsync<T>(Func<Task<T>> operation)
+{
+    while (true)
+    {
+        try
+        {
+            return await operation();
+        }
+        catch (ODataError ex) when (ex.ResponseStatusCode == 429)
+        {
+            // Check for Retry-After header
+            int retryAfterSeconds = 5; // Default
+            
+            if (ex.Error?.InnerError?.AdditionalData?.TryGetValue("Retry-After", out var retryAfter) == true)
+            {
+                if (int.TryParse(retryAfter.ToString(), out int seconds))
+                {
+                    retryAfterSeconds = seconds;
+                }
+            }
+            
+            Console.WriteLine($"Throttled. Waiting {retryAfterSeconds} seconds...");
+            await Task.Delay(TimeSpan.FromSeconds(retryAfterSeconds));
+            
+            // Retry the operation
+        }
+    }
+}
+
+// Usage
+var messages = await ExecuteWithThrottlingAsync(
+    () => graphClient.Me.Messages.GetAsync()
+);
+```
+
+### Polly Library Integration
+
+```csharp
+using Polly;
+using Polly.Retry;
+
+// Configure retry policy
+var retryPolicy = Policy
+    .Handle<ODataError>(ex => 
+        ex.ResponseStatusCode >= 500 || 
+        ex.ResponseStatusCode == 429)
+    .WaitAndRetryAsync(
+        retryCount: 3,
+        sleepDurationProvider: (attemptCount, ex, context) =>
+        {
+            // Check for Retry-After header
+            if (ex is ODataError odataError)
+            {
+                if (odataError.Error?.InnerError?.AdditionalData?
+                    .TryGetValue("Retry-After", out var retryAfter) == true)
+                {
+                    if (int.TryParse(retryAfter.ToString(), out int seconds))
+                    {
+                        return TimeSpan.FromSeconds(seconds);
+                    }
+                }
+            }
+            
+            // Exponential backoff
+            return TimeSpan.FromSeconds(Math.Pow(2, attemptCount));
+        },
+        onRetryAsync: async (ex, timespan, attemptNumber, context) =>
+        {
+            Console.WriteLine($"Retry {attemptNumber} after {timespan.TotalSeconds}s");
+        });
+
+// Use the policy
+var user = await retryPolicy.ExecuteAsync(
+    () => graphClient.Me.GetAsync()
+);
+```
+
+## Error Recovery Strategies
+
+### Graceful Degradation
+
+```csharp
+public async Task<User> GetUserWithFallbackAsync(string userId)
+{
+    try
+    {
+        // Try to get full user details
+        return await graphClient.Users[userId].GetAsync();
+    }
+    catch (ODataError ex) when (ex.ResponseStatusCode == 404)
+    {
+        Console.WriteLine("User not found");
+        return null;
+    }
+    catch (ODataError ex) when (ex.ResponseStatusCode == 403)
+    {
+        // Try to get limited information if permission denied
+        try
+        {
+            return await graphClient.Users[userId].GetAsync(config =>
+                config.QueryParameters.Select = new[] { "id", "displayName" });
+        }
+        catch
+        {
+            Console.WriteLine("Cannot access user information");
+            return null;
+        }
+    }
+}
+```
+
+### Partial Success Handling
+
+```csharp
+public async Task<List<User>> GetUsersWithErrorHandlingAsync(List<string> userIds)
+{
+    var users = new List<User>();
+    var errors = new List<(string UserId, string Error)>();
+    
+    foreach (var userId in userIds)
+    {
+        try
+        {
+            var user = await graphClient.Users[userId].GetAsync();
+            users.Add(user);
+        }
+        catch (ODataError ex)
+        {
+            errors.Add((userId, $"{ex.Error?.Code}: {ex.Error?.Message}"));
+            Console.WriteLine($"Failed to get user {userId}: {ex.Error?.Code}");
+        }
+    }
+    
+    if (errors.Any())
+    {
+        Console.WriteLine($"\nRetrieved {users.Count} users with {errors.Count} errors:");
+        foreach (var (userId, error) in errors)
+        {
+            Console.WriteLine($"  {userId}: {error}");
+        }
+    }
+    
+    return users;
+}
+```
+
+### Circuit Breaker Pattern
+
+```csharp
+public class GraphCircuitBreaker
+{
+    private int _failureCount = 0;
+    private DateTime _lastFailureTime = DateTime.MinValue;
+    private readonly int _threshold = 5;
+    private readonly TimeSpan _timeout = TimeSpan.FromMinutes(1);
+    
+    public async Task<T> ExecuteAsync<T>(Func<Task<T>> operation)
+    {
+        // Check if circuit is open
+        if (_failureCount >= _threshold)
+        {
+            if (DateTime.UtcNow - _lastFailureTime < _timeout)
+            {
+                throw new InvalidOperationException(
+                    $"Circuit breaker is open. Wait {_timeout.TotalSeconds}s.");
+            }
+            else
+            {
+                // Try to close circuit
+                _failureCount = 0;
+            }
+        }
+        
+        try
+        {
+            var result = await operation();
+            _failureCount = 0; // Reset on success
+            return result;
+        }
+        catch (ODataError ex)
+        {
+            _failureCount++;
+            _lastFailureTime = DateTime.UtcNow;
+            
+            Console.WriteLine($"Failure {_failureCount}/{_threshold}");
+            throw;
+        }
+    }
+}
+
+// Usage
+var circuitBreaker = new GraphCircuitBreaker();
+
+try
+{
+    var user = await circuitBreaker.ExecuteAsync(
+        () => graphClient.Me.GetAsync()
+    );
+}
+catch (InvalidOperationException ex)
+{
+    Console.WriteLine($"Circuit open: {ex.Message}");
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always catch ODataError">
+    Every Graph API call can potentially throw an exception:
+    
+    ```csharp
+    // Good
+    try
+    {
+        var user = await graphClient.Me.GetAsync();
+    }
+    catch (ODataError ex)
+    {
+        // Handle error
+    }
+    
+    // Bad - unhandled exception can crash app
+    var user = await graphClient.Me.GetAsync();
+    ```
+  </Accordion>
+  
+  <Accordion title="Check both status codes and error codes">
+    Use status codes for HTTP-level errors and error codes for Graph-specific errors:
+    
+    ```csharp
+    catch (ODataError ex) when (ex.ResponseStatusCode == 404)
+    {
+        // HTTP 404 - resource not found
+    }
+    catch (ODataError ex) when (IsErrorCode(ex, GraphErrorCode.AccessDenied))
+    {
+        // Graph error - permission denied
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Log error details for debugging">
+    Include request ID, timestamp, and full error details:
+    
+    ```csharp
+    catch (ODataError ex)
+    {
+        var requestId = ex.Error?.InnerError?.RequestId;
+        var date = ex.Error?.InnerError?.Date;
+        
+        _logger.LogError(
+            "Graph API error. RequestId: {RequestId}, Date: {Date}, Code: {Code}, Message: {Message}",
+            requestId, date, ex.Error?.Code, ex.Error?.Message
+        );
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Implement retry logic for transient failures">
+    Automatically retry on server errors and throttling:
+    
+    ```csharp
+    var retryPolicy = Policy
+        .Handle<ODataError>(ex => 
+            ex.ResponseStatusCode >= 500 || 
+            ex.ResponseStatusCode == 429)
+        .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt)));
+    
+    var user = await retryPolicy.ExecuteAsync(
+        () => graphClient.Me.GetAsync()
+    );
+    ```
+  </Accordion>
+  
+  <Accordion title="Handle throttling gracefully">
+    Respect Retry-After headers:
+    
+    ```csharp
+    catch (ODataError ex) when (ex.ResponseStatusCode == 429)
+    {
+        // Extract Retry-After
+        if (ex.Error?.InnerError?.AdditionalData?
+            .TryGetValue("Retry-After", out var retryAfter) == true)
+        {
+            var seconds = int.Parse(retryAfter.ToString());
+            await Task.Delay(TimeSpan.FromSeconds(seconds));
+            // Retry
+        }
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Provide meaningful error messages to users">
+    Translate Graph errors into user-friendly messages:
+    
+    ```csharp
+    catch (ODataError ex)
+    {
+        var userMessage = ex.ResponseStatusCode switch
+        {
+            404 => "The requested item was not found.",
+            403 => "You don't have permission to access this resource.",
+            401 => "Please sign in again.",
+            429 => "Too many requests. Please try again later.",
+            _ => "An error occurred. Please try again."
+        };
+        
+        ShowUserMessage(userMessage);
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Common Error Scenarios
+
+### Permission Errors
+
+```csharp
+try
+{
+    var user = await graphClient.Users["user-id"].GetAsync();
+}
+catch (ODataError ex) when (ex.ResponseStatusCode == 403)
+{
+    Console.WriteLine("Permission denied. Required scopes:");
+    Console.WriteLine("- User.Read.All (to read all users)");
+    Console.WriteLine("- User.ReadWrite.All (to modify users)");
+    
+    // Check if error details provide more info
+    if (ex.Error?.Message?.Contains("Insufficient privileges") == true)
+    {
+        Console.WriteLine("\nThe application needs admin consent.");
+    }
+}
+```
+
+### Authentication Errors
+
+```csharp
+try
+{
+    var user = await graphClient.Me.GetAsync();
+}
+catch (ODataError ex) when (ex.ResponseStatusCode == 401)
+{
+    Console.WriteLine("Authentication failed:");
+    
+    if (IsErrorCode(ex, GraphErrorCode.Unauthenticated))
+    {
+        Console.WriteLine("- Token is missing or invalid");
+        Console.WriteLine("- Token may have expired");
+        Console.WriteLine("- Sign in again to get a new token");
+    }
+}
+```
+
+### Resource Not Found
+
+```csharp
+try
+{
+    var user = await graphClient.Users["nonexistent-id"].GetAsync();
+}
+catch (ODataError ex) when (ex.ResponseStatusCode == 404)
+{
+    Console.WriteLine($"User not found. Possible reasons:");
+    Console.WriteLine($"- User ID is incorrect");
+    Console.WriteLine($"- User was deleted");
+    Console.WriteLine($"- Insufficient permissions to see the user");
+    
+    // Return null or default instead of propagating
+    return null;
+}
+```
+
+### Validation Errors
+
+```csharp
+try
+{
+    var newUser = new User
+    {
+        DisplayName = "John Doe",
+        // Missing required properties
+    };
+    
+    await graphClient.Users.PostAsync(newUser);
+}
+catch (ODataError ex) when (ex.ResponseStatusCode == 400)
+{
+    Console.WriteLine("Validation failed:");
+    Console.WriteLine(ex.Error?.Message);
+    
+    // Check for specific validation errors
+    if (ex.Error?.Details != null)
+    {
+        foreach (var detail in ex.Error.Details)
+        {
+            Console.WriteLine($"  {detail.Target}: {detail.Message}");
+        }
+    }
+}
+```
+
+## Testing Error Scenarios
+
+### Unit Testing with Mocks
+
+```csharp
+using Moq;
+using Xunit;
+
+public class UserServiceTests
+{
+    [Fact]
+    public async Task GetUser_WhenNotFound_ReturnsNull()
+    {
+        // Arrange
+        var mockClient = new Mock<GraphServiceClient>();
+        var error = new ODataError
+        {
+            ResponseStatusCode = 404,
+            Error = new MainError { Code = "Request_ResourceNotFound" }
+        };
+        
+        mockClient
+            .Setup(c => c.Users[It.IsAny<string>()].GetAsync(null, default))
+            .ThrowsAsync(error);
+        
+        var service = new UserService(mockClient.Object);
+        
+        // Act
+        var result = await service.GetUserAsync("nonexistent-id");
+        
+        // Assert
+        Assert.Null(result);
+    }
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="key" href="/core-concepts/authentication">
+    Understand authentication errors and token management
+  </Card>
+  
+  <Card title="Headers" icon="heading" href="/core-concepts/headers">
+    Learn about headers like Retry-After
+  </Card>
+  
+  <Card title="Throttling" icon="gauge-high" href="/guides/throttling">
+    Handle rate limiting and throttling
+  </Card>
+  
+  <Card title="Logging" icon="file-lines" href="/guides/logging">
+    Implement logging for error tracking
+  </Card>
+</CardGroup>
+
+## Additional Resources
+
+- [Microsoft Graph Error Responses](https://learn.microsoft.com/graph/errors)
+- [Microsoft Graph Best Practices](https://learn.microsoft.com/graph/best-practices-concept)
+- [Throttling Guidance](https://learn.microsoft.com/graph/throttling)
+- [Polly Library Documentation](https://github.com/App-vNext/Polly)

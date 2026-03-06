@@ -1,0 +1,342 @@
+---
+title: Working with Users
+description: Learn how to manage users in Microsoft Graph using the .NET SDK
+---
+
+This guide covers common operations for working with users in Microsoft Graph, including retrieving, creating, updating, and managing user properties.
+
+## Getting Started
+
+All user operations start with the `Users` property of the `GraphServiceClient`:
+
+```csharp
+using Microsoft.Graph;
+using Microsoft.Graph.Models;
+
+var graphClient = new GraphServiceClient(authProvider);
+```
+
+## Retrieving Users
+
+### List All Users
+
+<Steps>
+  <Step title="List users with basic properties">
+    ```csharp
+    var users = await graphClient.Users
+        .GetAsync();
+
+    foreach (var user in users.Value)
+    {
+        Console.WriteLine($"{user.DisplayName} ({user.UserPrincipalName})");
+    }
+    ```
+  </Step>
+  
+  <Step title="Select specific properties">
+    ```csharp
+    var users = await graphClient.Users
+        .GetAsync(requestConfiguration =>
+        {
+            requestConfiguration.QueryParameters.Select = new[] 
+            { 
+                "displayName", 
+                "mail", 
+                "jobTitle" 
+            };
+        });
+    ```
+  </Step>
+</Steps>
+
+### Get a Single User
+
+```csharp
+// Get user by ID
+var user = await graphClient.Users["user-id"]
+    .GetAsync();
+
+// Get user with expanded properties
+var userWithManager = await graphClient.Users["user-id"]
+    .GetAsync(requestConfiguration =>
+    {
+        requestConfiguration.QueryParameters.Expand = new[] { "manager" };
+    });
+```
+
+## Filtering and Searching Users
+
+### Filter Users
+
+```csharp
+// Filter by department
+var users = await graphClient.Users
+    .GetAsync(requestConfiguration =>
+    {
+        requestConfiguration.QueryParameters.Filter = "department eq 'Sales'";
+    });
+
+// Filter by multiple conditions
+var users = await graphClient.Users
+    .GetAsync(requestConfiguration =>
+    {
+        requestConfiguration.QueryParameters.Filter = 
+            "accountEnabled eq true and userType eq 'Member'";
+    });
+```
+
+### Search Users
+
+<Note>
+Search requires the `ConsistencyLevel: eventual` header and `$count=true` query parameter.
+</Note>
+
+```csharp
+var users = await graphClient.Users
+    .GetAsync(requestConfiguration =>
+    {
+        requestConfiguration.QueryParameters.Search = "\"displayName:John\"";
+        requestConfiguration.QueryParameters.Count = true;
+        requestConfiguration.Headers.Add("ConsistencyLevel", "eventual");
+    });
+```
+
+## Creating Users
+
+### Create a New User
+
+```csharp
+var newUser = new User
+{
+    AccountEnabled = true,
+    DisplayName = "Jane Doe",
+    MailNickname = "janedoe",
+    UserPrincipalName = "janedoe@contoso.com",
+    PasswordProfile = new PasswordProfile
+    {
+        ForceChangePasswordNextSignIn = true,
+        Password = "TempP@ssw0rd!"
+    }
+};
+
+try
+{
+    var createdUser = await graphClient.Users
+        .PostAsync(newUser);
+    
+    Console.WriteLine($"Created user: {createdUser.Id}");
+}
+catch (ODataError odataError)
+{
+    Console.WriteLine($"Error: {odataError.Error.Message}");
+}
+```
+
+## Updating Users
+
+### Update User Properties
+
+```csharp
+var userUpdate = new User
+{
+    JobTitle = "Senior Developer",
+    Department = "Engineering",
+    MobilePhone = "+1 555-0123"
+};
+
+await graphClient.Users["user-id"]
+    .PatchAsync(userUpdate);
+```
+
+### Assign Manager
+
+```csharp
+var manager = new ReferenceCreate
+{
+    OdataId = $"https://graph.microsoft.com/v1.0/users/{managerId}"
+};
+
+await graphClient.Users["user-id"].Manager.Ref
+    .PutAsync(manager);
+```
+
+## Managing User Relationships
+
+### Get User's Manager
+
+```csharp
+var manager = await graphClient.Users["user-id"].Manager
+    .GetAsync();
+
+if (manager is User managerUser)
+{
+    Console.WriteLine($"Manager: {managerUser.DisplayName}");
+}
+```
+
+### Get Direct Reports
+
+```csharp
+var directReports = await graphClient.Users["user-id"].DirectReports
+    .GetAsync();
+
+foreach (var report in directReports.Value)
+{
+    if (report is User reportUser)
+    {
+        Console.WriteLine(reportUser.DisplayName);
+    }
+}
+```
+
+### Get Member Groups
+
+```csharp
+var memberGroups = await graphClient.Users["user-id"]
+    .MemberOf
+    .GetAsync();
+
+foreach (var group in memberGroups.Value)
+{
+    Console.WriteLine(group.Id);
+}
+```
+
+## Pagination
+
+Handle large result sets using pagination:
+
+```csharp
+var users = await graphClient.Users
+    .GetAsync(requestConfiguration =>
+    {
+        requestConfiguration.QueryParameters.Top = 10;
+    });
+
+// Get first page
+foreach (var user in users.Value)
+{
+    Console.WriteLine(user.DisplayName);
+}
+
+// Get next page if available
+if (users.OdataNextLink != null)
+{
+    var nextPageRequest = new UsersRequestBuilder(
+        users.OdataNextLink, 
+        graphClient.RequestAdapter
+    );
+    
+    var nextPage = await nextPageRequest.GetAsync();
+}
+```
+
+## Error Handling
+
+Always implement proper error handling:
+
+```csharp
+using Microsoft.Graph.Models.ODataErrors;
+
+try
+{
+    var user = await graphClient.Users["user-id"]
+        .GetAsync();
+}
+catch (ODataError odataError)
+{
+    Console.WriteLine($"Error Code: {odataError.Error.Code}");
+    Console.WriteLine($"Message: {odataError.Error.Message}");
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"Unexpected error: {ex.Message}");
+}
+```
+
+## Complete Example
+
+Here's a complete example that demonstrates multiple user operations:
+
+```csharp
+using Microsoft.Graph;
+using Microsoft.Graph.Models;
+using Microsoft.Graph.Models.ODataErrors;
+
+public class UserManager
+{
+    private readonly GraphServiceClient _graphClient;
+
+    public UserManager(GraphServiceClient graphClient)
+    {
+        _graphClient = graphClient;
+    }
+
+    public async Task<User> CreateAndConfigureUserAsync(
+        string displayName, 
+        string email, 
+        string department)
+    {
+        try
+        {
+            // Create user
+            var newUser = new User
+            {
+                AccountEnabled = true,
+                DisplayName = displayName,
+                MailNickname = email.Split('@')[0],
+                UserPrincipalName = email,
+                Department = department,
+                PasswordProfile = new PasswordProfile
+                {
+                    ForceChangePasswordNextSignIn = true,
+                    Password = GenerateSecurePassword()
+                }
+            };
+
+            var createdUser = await _graphClient.Users
+                .PostAsync(newUser);
+
+            // Get department manager
+            var deptUsers = await _graphClient.Users
+                .GetAsync(config =>
+                {
+                    config.QueryParameters.Filter = 
+                        $"department eq '{department}' and jobTitle eq 'Manager'";
+                    config.QueryParameters.Top = 1;
+                });
+
+            // Assign manager if found
+            if (deptUsers.Value.Count > 0)
+            {
+                var manager = new ReferenceCreate
+                {
+                    OdataId = $"https://graph.microsoft.com/v1.0/users/{deptUsers.Value[0].Id}"
+                };
+
+                await _graphClient.Users[createdUser.Id].Manager.Ref
+                    .PutAsync(manager);
+            }
+
+            return createdUser;
+        }
+        catch (ODataError error)
+        {
+            Console.WriteLine($"Failed to create user: {error.Error.Message}");
+            throw;
+        }
+    }
+
+    private string GenerateSecurePassword()
+    {
+        // Implementation for generating secure password
+        return "TempP@ssw0rd123!";
+    }
+}
+```
+
+## Next Steps
+
+- [Working with Groups](/guides/working-with-groups) - Manage group memberships
+- [Working with Mail](/guides/working-with-mail) - Access user mailboxes
+- [API Reference](/api-reference/users) - Complete Users API reference

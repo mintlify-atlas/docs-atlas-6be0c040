@@ -1,0 +1,228 @@
+---
+title: 'GraphServiceClient'
+description: 'Main entry point for accessing Microsoft Graph API'
+---
+
+## Overview
+
+The `GraphServiceClient` class is the main entry point for interacting with Microsoft Graph. It provides access to all Graph API resources through a fluent API and manages authentication, request execution, and resource initialization.
+
+## Constructor Overloads
+
+### Using TokenCredential
+
+```csharp
+public GraphServiceClient(
+    TokenCredential tokenCredential,
+    IEnumerable<string> scopes = null,
+    string baseUrl = null
+)
+```
+
+<ParamField path="tokenCredential" type="TokenCredential" required>
+  Azure.Core TokenCredential for authenticating requests (e.g., ClientSecretCredential, DefaultAzureCredential)
+</ParamField>
+
+<ParamField path="scopes" type="IEnumerable<string>">
+  List of permission scopes. Defaults to `[".default"]` if not specified
+</ParamField>
+
+<ParamField path="baseUrl" type="string">
+  Base service URL. Defaults to `https://graph.microsoft.com/v1.0`
+</ParamField>
+
+### Using IRequestAdapter
+
+```csharp
+public GraphServiceClient(
+    IRequestAdapter requestAdapter,
+    string baseUrl = null
+)
+```
+
+<ParamField path="requestAdapter" type="IRequestAdapter" required>
+  Custom request adapter for making HTTP requests
+</ParamField>
+
+<ParamField path="baseUrl" type="string">
+  Base service URL. Overrides the adapter's base URL if provided
+</ParamField>
+
+### Using HttpClient and TokenCredential
+
+```csharp
+public GraphServiceClient(
+    HttpClient httpClient,
+    TokenCredential tokenCredential,
+    IEnumerable<string> scopes = null,
+    string baseUrl = null
+)
+```
+
+<ParamField path="httpClient" type="HttpClient" required>
+  Custom HttpClient instance with middleware pipeline
+</ParamField>
+
+<ParamField path="tokenCredential" type="TokenCredential" required>
+  TokenCredential for authentication
+</ParamField>
+
+<ParamField path="scopes" type="IEnumerable<string>">
+  Permission scopes for authentication
+</ParamField>
+
+<ParamField path="baseUrl" type="string">
+  Base service URL
+</ParamField>
+
+### Using IAuthenticationProvider
+
+```csharp
+public GraphServiceClient(
+    IAuthenticationProvider authenticationProvider,
+    string baseUrl = null
+)
+```
+
+<ParamField path="authenticationProvider" type="IAuthenticationProvider" required>
+  Custom authentication provider implementing IAuthenticationProvider
+</ParamField>
+
+<ParamField path="baseUrl" type="string">
+  Base service URL
+</ParamField>
+
+## Properties
+
+### RequestAdapter
+
+```csharp
+public IRequestAdapter RequestAdapter { get; set; }
+```
+
+Access to the underlying request adapter for advanced scenarios.
+
+### Batch
+
+```csharp
+public BatchRequestBuilder Batch { get; }
+```
+
+Request builder for creating batch requests to execute multiple operations in a single HTTP call.
+
+### Resource Properties
+
+The client exposes all Graph API resources as properties:
+
+- `Users` - User management operations
+- `Groups` - Group management operations  
+- `Applications` - Application registration management
+- `ServicePrincipals` - Service principal management
+- `Drives` - OneDrive and SharePoint drive operations
+- `Sites` - SharePoint site operations
+- `Teams` - Microsoft Teams operations
+- `Chats` - Chat operations
+- `Me` - Operations for the signed-in user
+- And many more...
+
+## Code Examples
+
+### Basic Initialization with ClientSecretCredential
+
+```csharp
+using Azure.Identity;
+using Microsoft.Graph;
+
+var credential = new ClientSecretCredential(
+    tenantId: "YOUR_TENANT_ID",
+    clientId: "YOUR_CLIENT_ID",
+    clientSecret: "YOUR_CLIENT_SECRET"
+);
+
+var graphClient = new GraphServiceClient(credential);
+
+// Access resources
+var users = await graphClient.Users.GetAsync();
+```
+
+### Using DefaultAzureCredential
+
+```csharp
+using Azure.Identity;
+using Microsoft.Graph;
+
+var credential = new DefaultAzureCredential();
+
+var graphClient = new GraphServiceClient(
+    credential,
+    scopes: new[] { "https://graph.microsoft.com/.default" }
+);
+
+var me = await graphClient.Me.GetAsync();
+```
+
+### Custom BaseUrl for Beta Endpoint
+
+```csharp
+var graphClient = new GraphServiceClient(
+    credential,
+    baseUrl: "https://graph.microsoft.com/beta"
+);
+```
+
+### Using Custom HttpClient
+
+```csharp
+var httpClient = new HttpClient();
+httpClient.Timeout = TimeSpan.FromSeconds(100);
+
+var graphClient = new GraphServiceClient(
+    httpClient,
+    credential
+);
+```
+
+### Batch Requests
+
+```csharp
+var batchRequestContent = new BatchRequestContent();
+
+var userRequest = graphClient.Users["user-id"].ToGetRequestInformation();
+var groupRequest = graphClient.Groups["group-id"].ToGetRequestInformation();
+
+var userRequestId = await batchRequestContent.AddBatchRequestStepAsync(userRequest);
+var groupRequestId = await batchRequestContent.AddBatchRequestStepAsync(groupRequest);
+
+var batchResponse = await graphClient.Batch.PostAsync(batchRequestContent);
+```
+
+## Disposal
+
+```csharp
+public void Dispose()
+```
+
+The client implements `IDisposable`. Dispose when done to clean up resources:
+
+```csharp
+using var graphClient = new GraphServiceClient(credential);
+// Use client
+// Automatically disposed
+```
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Authentication Providers" href="/api-reference/authentication-providers" icon="key">
+    Learn about authentication options
+  </Card>
+  <Card title="Users API" href="/api-reference/users" icon="users">
+    User management operations
+  </Card>
+  <Card title="Groups API" href="/api-reference/groups" icon="users-rectangle">
+    Group management operations
+  </Card>
+  <Card title="Batch Requests" href="/guides/batching" icon="layer-group">
+    Execute multiple requests efficiently
+  </Card>
+</CardGroup>

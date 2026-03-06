@@ -1,0 +1,747 @@
+---
+title: Working with Calendar
+description: Learn how to manage calendar events, meetings, and schedules using Microsoft Graph .NET SDK
+---
+
+This guide covers calendar operations including creating events, managing meetings, finding available times, and working with calendars.
+
+## Getting Started
+
+```csharp
+using Microsoft.Graph;
+using Microsoft.Graph.Models;
+
+var graphClient = new GraphServiceClient(authProvider);
+```
+
+## Retrieving Events
+
+### List User's Events
+
+```csharp
+var events = await graphClient.Me.Events
+    .GetAsync(requestConfiguration =>
+    {
+        requestConfiguration.QueryParameters.Top = 25;
+        requestConfiguration.QueryParameters.Orderby = new[] { "start/dateTime" };
+        requestConfiguration.QueryParameters.Select = new[] 
+        { 
+            "subject", 
+            "start", 
+            "end",
+            "location",
+            "organizer"
+        };
+    });
+
+foreach (var evt in events.Value)
+{
+    Console.WriteLine($"{evt.Subject} - {evt.Start.DateTime}");
+}
+```
+
+### Get Calendar View
+
+Use calendar view to get events within a specific time range:
+
+```csharp
+var startDateTime = DateTime.Now;
+var endDateTime = DateTime.Now.AddDays(7);
+
+var events = await graphClient.Me.CalendarView
+    .GetAsync(requestConfiguration =>
+    {
+        requestConfiguration.QueryParameters.StartDateTime = 
+            startDateTime.ToString("yyyy-MM-ddTHH:mm:ss");
+        requestConfiguration.QueryParameters.EndDateTime = 
+            endDateTime.ToString("yyyy-MM-ddTHH:mm:ss");
+    });
+```
+
+### Get Single Event
+
+```csharp
+var event = await graphClient.Me.Events["event-id"]
+    .GetAsync();
+
+Console.WriteLine($"Subject: {event.Subject}");
+Console.WriteLine($"Start: {event.Start.DateTime} {event.Start.TimeZone}");
+Console.WriteLine($"End: {event.End.DateTime} {event.End.TimeZone}");
+Console.WriteLine($"Location: {event.Location.DisplayName}");
+```
+
+## Creating Events
+
+### Create a Simple Event
+
+<Steps>
+  <Step title="Define event properties">
+    ```csharp
+    var newEvent = new Event
+    {
+        Subject = "Team Meeting",
+        Body = new ItemBody
+        {
+            ContentType = BodyType.Html,
+            Content = "Discuss Q1 planning and objectives."
+        },
+        Start = new DateTimeTimeZone
+        {
+            DateTime = "2024-03-15T10:00:00",
+            TimeZone = "Pacific Standard Time"
+        },
+        End = new DateTimeTimeZone
+        {
+            DateTime = "2024-03-15T11:00:00",
+            TimeZone = "Pacific Standard Time"
+        },
+        Location = new Location
+        {
+            DisplayName = "Conference Room A"
+        }
+    };
+    ```
+  </Step>
+
+  <Step title="Create the event">
+    ```csharp
+    var createdEvent = await graphClient.Me.Events
+        .PostAsync(newEvent);
+    
+    Console.WriteLine($"Event created: {createdEvent.Id}");
+    ```
+  </Step>
+</Steps>
+
+### Create Meeting with Attendees
+
+```csharp
+var meeting = new Event
+{
+    Subject = "Project Kickoff",
+    Body = new ItemBody
+    {
+        ContentType = BodyType.Html,
+        Content = "Initial project meeting with stakeholders."
+    },
+    Start = new DateTimeTimeZone
+    {
+        DateTime = "2024-03-20T14:00:00",
+        TimeZone = "UTC"
+    },
+    End = new DateTimeTimeZone
+    {
+        DateTime = "2024-03-20T15:00:00",
+        TimeZone = "UTC"
+    },
+    Location = new Location
+    {
+        DisplayName = "Microsoft Teams Meeting"
+    },
+    Attendees = new List<Attendee>
+    {
+        new Attendee
+        {
+            EmailAddress = new EmailAddress
+            {
+                Address = "user1@example.com",
+                Name = "John Doe"
+            },
+            Type = AttendeeType.Required
+        },
+        new Attendee
+        {
+            EmailAddress = new EmailAddress
+            {
+                Address = "user2@example.com",
+                Name = "Jane Smith"
+            },
+            Type = AttendeeType.Optional
+        }
+    },
+    IsOnlineMeeting = true,
+    OnlineMeetingProvider = OnlineMeetingProviderType.TeamsForBusiness
+};
+
+var createdMeeting = await graphClient.Me.Events
+    .PostAsync(meeting);
+```
+
+### Create All-Day Event
+
+```csharp
+var allDayEvent = new Event
+{
+    Subject = "Company Holiday",
+    IsAllDay = true,
+    Start = new DateTimeTimeZone
+    {
+        DateTime = "2024-07-04",
+        TimeZone = "Pacific Standard Time"
+    },
+    End = new DateTimeTimeZone
+    {
+        DateTime = "2024-07-05",
+        TimeZone = "Pacific Standard Time"
+    }
+};
+
+await graphClient.Me.Events
+    .PostAsync(allDayEvent);
+```
+
+### Create Recurring Event
+
+<CodeGroup>
+```csharp Daily Recurrence
+var recurringEvent = new Event
+{
+    Subject = "Daily Standup",
+    Start = new DateTimeTimeZone
+    {
+        DateTime = "2024-03-01T09:00:00",
+        TimeZone = "Pacific Standard Time"
+    },
+    End = new DateTimeTimeZone
+    {
+        DateTime = "2024-03-01T09:15:00",
+        TimeZone = "Pacific Standard Time"
+    },
+    Recurrence = new PatternedRecurrence
+    {
+        Pattern = new RecurrencePattern
+        {
+            Type = RecurrencePatternType.Daily,
+            Interval = 1
+        },
+        Range = new RecurrenceRange
+        {
+            Type = RecurrenceRangeType.EndDate,
+            StartDate = new Date(2024, 3, 1),
+            EndDate = new Date(2024, 12, 31)
+        }
+    }
+};
+```
+
+```csharp Weekly Recurrence
+var weeklyMeeting = new Event
+{
+    Subject = "Weekly Team Meeting",
+    Start = new DateTimeTimeZone
+    {
+        DateTime = "2024-03-04T14:00:00",
+        TimeZone = "UTC"
+    },
+    End = new DateTimeTimeZone
+    {
+        DateTime = "2024-03-04T15:00:00",
+        TimeZone = "UTC"
+    },
+    Recurrence = new PatternedRecurrence
+    {
+        Pattern = new RecurrencePattern
+        {
+            Type = RecurrencePatternType.Weekly,
+            Interval = 1,
+            DaysOfWeek = new List<DayOfWeek?> 
+            { 
+                DayOfWeek.Monday 
+            }
+        },
+        Range = new RecurrenceRange
+        {
+            Type = RecurrenceRangeType.NoEnd,
+            StartDate = new Date(2024, 3, 4)
+        }
+    }
+};
+```
+
+```csharp Monthly Recurrence
+var monthlyReview = new Event
+{
+    Subject = "Monthly Review",
+    Start = new DateTimeTimeZone
+    {
+        DateTime = "2024-03-01T10:00:00",
+        TimeZone = "UTC"
+    },
+    End = new DateTimeTimeZone
+    {
+        DateTime = "2024-03-01T11:00:00",
+        TimeZone = "UTC"
+    },
+    Recurrence = new PatternedRecurrence
+    {
+        Pattern = new RecurrencePattern
+        {
+            Type = RecurrencePatternType.AbsoluteMonthly,
+            Interval = 1,
+            DayOfMonth = 1
+        },
+        Range = new RecurrenceRange
+        {
+            Type = RecurrenceRangeType.Numbered,
+            StartDate = new Date(2024, 3, 1),
+            NumberOfOccurrences = 12
+        }
+    }
+};
+```
+</CodeGroup>
+
+## Updating Events
+
+### Update Event Properties
+
+```csharp
+var eventUpdate = new Event
+{
+    Subject = "Updated Meeting Title",
+    Location = new Location
+    {
+        DisplayName = "Conference Room B"
+    },
+    Start = new DateTimeTimeZone
+    {
+        DateTime = "2024-03-15T14:00:00",
+        TimeZone = "Pacific Standard Time"
+    },
+    End = new DateTimeTimeZone
+    {
+        DateTime = "2024-03-15T15:00:00",
+        TimeZone = "Pacific Standard Time"
+    }
+};
+
+await graphClient.Me.Events["event-id"]
+    .PatchAsync(eventUpdate);
+```
+
+### Add Attendees to Existing Event
+
+```csharp
+var event = await graphClient.Me.Events["event-id"]
+    .GetAsync();
+
+// Add new attendee
+var newAttendees = event.Attendees?.ToList() ?? new List<Attendee>();
+newAttendees.Add(new Attendee
+{
+    EmailAddress = new EmailAddress
+    {
+        Address = "newuser@example.com"
+    },
+    Type = AttendeeType.Required
+});
+
+var updateEvent = new Event
+{
+    Attendees = newAttendees
+};
+
+await graphClient.Me.Events["event-id"]
+    .PatchAsync(updateEvent);
+```
+
+## Managing Event Responses
+
+### Accept Meeting
+
+```csharp
+var response = new AcceptPostRequestBody
+{
+    Comment = "I'll be there!",
+    SendResponse = true
+};
+
+await graphClient.Me.Events["event-id"]
+    .Accept
+    .PostAsync(response);
+```
+
+### Decline Meeting
+
+```csharp
+var response = new DeclinePostRequestBody
+{
+    Comment = "Sorry, I have a conflict.",
+    SendResponse = true,
+    ProposedNewTime = new TimeSlot
+    {
+        Start = new DateTimeTimeZone
+        {
+            DateTime = "2024-03-15T15:00:00",
+            TimeZone = "Pacific Standard Time"
+        },
+        End = new DateTimeTimeZone
+        {
+            DateTime = "2024-03-15T16:00:00",
+            TimeZone = "Pacific Standard Time"
+        }
+    }
+};
+
+await graphClient.Me.Events["event-id"]
+    .Decline
+    .PostAsync(response);
+```
+
+### Tentatively Accept
+
+```csharp
+var response = new TentativelyAcceptPostRequestBody
+{
+    Comment = "I'll try to make it.",
+    SendResponse = true
+};
+
+await graphClient.Me.Events["event-id"]
+    .TentativelyAccept
+    .PostAsync(response);
+```
+
+## Finding Available Times
+
+### Find Meeting Times
+
+```csharp
+var requestBody = new FindMeetingTimesPostRequestBody
+{
+    Attendees = new List<AttendeeBase>
+    {
+        new AttendeeBase
+        {
+            EmailAddress = new EmailAddress
+            {
+                Address = "user1@example.com"
+            },
+            Type = AttendeeType.Required
+        },
+        new AttendeeBase
+        {
+            EmailAddress = new EmailAddress
+            {
+                Address = "user2@example.com"
+            },
+            Type = AttendeeType.Required
+        }
+    },
+    TimeConstraint = new TimeConstraint
+    {
+        TimeSlots = new List<TimeSlot>
+        {
+            new TimeSlot
+            {
+                Start = new DateTimeTimeZone
+                {
+                    DateTime = "2024-03-15T09:00:00",
+                    TimeZone = "Pacific Standard Time"
+                },
+                End = new DateTimeTimeZone
+                {
+                    DateTime = "2024-03-15T17:00:00",
+                    TimeZone = "Pacific Standard Time"
+                }
+            }
+        }
+    },
+    MeetingDuration = TimeSpan.FromMinutes(60),
+    MaxCandidates = 5
+};
+
+var meetingTimes = await graphClient.Me
+    .FindMeetingTimes
+    .PostAsync(requestBody);
+
+foreach (var suggestion in meetingTimes.MeetingTimeSuggestions)
+{
+    Console.WriteLine($"Available: {suggestion.MeetingTimeSlot.Start.DateTime}");
+    Console.WriteLine($"Confidence: {suggestion.Confidence}");
+}
+```
+
+## Working with Multiple Calendars
+
+### List User's Calendars
+
+```csharp
+var calendars = await graphClient.Me.Calendars
+    .GetAsync();
+
+foreach (var calendar in calendars.Value)
+{
+    Console.WriteLine($"{calendar.Name} - {calendar.Id}");
+}
+```
+
+### Create a Custom Calendar
+
+```csharp
+var newCalendar = new Calendar
+{
+    Name = "Project Alpha"
+};
+
+var createdCalendar = await graphClient.Me.Calendars
+    .PostAsync(newCalendar);
+```
+
+### Create Event in Specific Calendar
+
+```csharp
+var event = new Event
+{
+    Subject = "Project Milestone",
+    Start = new DateTimeTimeZone
+    {
+        DateTime = "2024-04-01T10:00:00",
+        TimeZone = "UTC"
+    },
+    End = new DateTimeTimeZone
+    {
+        DateTime = "2024-04-01T11:00:00",
+        TimeZone = "UTC"
+    }
+};
+
+var createdEvent = await graphClient.Me
+    .Calendars["calendar-id"]
+    .Events
+    .PostAsync(event);
+```
+
+## Deleting Events
+
+### Cancel a Meeting
+
+```csharp
+await graphClient.Me.Events["event-id"]
+    .Cancel
+    .PostAsync(new CancelPostRequestBody
+    {
+        Comment = "Meeting has been cancelled."
+    });
+```
+
+### Delete an Event
+
+```csharp
+await graphClient.Me.Events["event-id"]
+    .DeleteAsync();
+```
+
+## Complete Example
+
+```csharp
+using Microsoft.Graph;
+using Microsoft.Graph.Models;
+using Microsoft.Graph.Models.ODataErrors;
+
+public class CalendarManager
+{
+    private readonly GraphServiceClient _graphClient;
+
+    public CalendarManager(GraphServiceClient graphClient)
+    {
+        _graphClient = graphClient;
+    }
+
+    public async Task<Event> ScheduleMeetingWithAvailabilityCheckAsync(
+        string subject,
+        List<string> attendeeEmails,
+        DateTime preferredDate,
+        int durationMinutes)
+    {
+        try
+        {
+            // 1. Find available meeting times
+            var attendees = attendeeEmails.Select(email => new AttendeeBase
+            {
+                EmailAddress = new EmailAddress { Address = email },
+                Type = AttendeeType.Required
+            }).ToList();
+
+            var findTimesRequest = new FindMeetingTimesPostRequestBody
+            {
+                Attendees = attendees,
+                TimeConstraint = new TimeConstraint
+                {
+                    TimeSlots = new List<TimeSlot>
+                    {
+                        new TimeSlot
+                        {
+                            Start = new DateTimeTimeZone
+                            {
+                                DateTime = preferredDate.ToString("yyyy-MM-ddT09:00:00"),
+                                TimeZone = "Pacific Standard Time"
+                            },
+                            End = new DateTimeTimeZone
+                            {
+                                DateTime = preferredDate.ToString("yyyy-MM-ddT17:00:00"),
+                                TimeZone = "Pacific Standard Time"
+                            }
+                        }
+                    }
+                },
+                MeetingDuration = TimeSpan.FromMinutes(durationMinutes),
+                MaxCandidates = 3
+            };
+
+            var availableTimes = await _graphClient.Me
+                .FindMeetingTimes
+                .PostAsync(findTimesRequest);
+
+            if (availableTimes.MeetingTimeSuggestions?.Count == 0)
+            {
+                throw new Exception("No available time slots found");
+            }
+
+            // 2. Use the best suggestion to create meeting
+            var bestTime = availableTimes.MeetingTimeSuggestions[0];
+
+            var meeting = new Event
+            {
+                Subject = subject,
+                Body = new ItemBody
+                {
+                    ContentType = BodyType.Html,
+                    Content = $"Meeting scheduled based on availability. Duration: {durationMinutes} minutes."
+                },
+                Start = bestTime.MeetingTimeSlot.Start,
+                End = bestTime.MeetingTimeSlot.End,
+                Attendees = attendeeEmails.Select(email => new Attendee
+                {
+                    EmailAddress = new EmailAddress { Address = email },
+                    Type = AttendeeType.Required
+                }).ToList(),
+                IsOnlineMeeting = true,
+                OnlineMeetingProvider = OnlineMeetingProviderType.TeamsForBusiness
+            };
+
+            var createdEvent = await _graphClient.Me.Events
+                .PostAsync(meeting);
+
+            Console.WriteLine($"Meeting scheduled for {createdEvent.Start.DateTime}");
+            Console.WriteLine($"Teams link: {createdEvent.OnlineMeeting?.JoinUrl}");
+
+            return createdEvent;
+        }
+        catch (ODataError error)
+        {
+            Console.WriteLine($"Error scheduling meeting: {error.Error.Message}");
+            throw;
+        }
+    }
+
+    public async Task<List<Event>> GetUpcomingMeetingsAsync(int days = 7)
+    {
+        var startDateTime = DateTime.Now;
+        var endDateTime = DateTime.Now.AddDays(days);
+
+        var events = await _graphClient.Me.CalendarView
+            .GetAsync(config =>
+            {
+                config.QueryParameters.StartDateTime = 
+                    startDateTime.ToString("yyyy-MM-ddTHH:mm:ss");
+                config.QueryParameters.EndDateTime = 
+                    endDateTime.ToString("yyyy-MM-ddTHH:mm:ss");
+                config.QueryParameters.Top = 50;
+                config.QueryParameters.Orderby = new[] { "start/dateTime" };
+            });
+
+        return events.Value.ToList();
+    }
+
+    public async Task<bool> RescheduleMeetingAsync(
+        string eventId,
+        DateTime newStartTime,
+        DateTime newEndTime)
+    {
+        try
+        {
+            var eventUpdate = new Event
+            {
+                Start = new DateTimeTimeZone
+                {
+                    DateTime = newStartTime.ToString("yyyy-MM-ddTHH:mm:ss"),
+                    TimeZone = "Pacific Standard Time"
+                },
+                End = new DateTimeTimeZone
+                {
+                    DateTime = newEndTime.ToString("yyyy-MM-ddTHH:mm:ss"),
+                    TimeZone = "Pacific Standard Time"
+                }
+            };
+
+            await _graphClient.Me.Events[eventId]
+                .PatchAsync(eventUpdate);
+
+            Console.WriteLine("Meeting rescheduled successfully");
+            return true;
+        }
+        catch (ODataError error)
+        {
+            Console.WriteLine($"Failed to reschedule: {error.Error.Message}");
+            return false;
+        }
+    }
+
+    public async Task GenerateDailyAgendaAsync()
+    {
+        var today = DateTime.Today;
+        var tomorrow = today.AddDays(1);
+
+        var events = await _graphClient.Me.CalendarView
+            .GetAsync(config =>
+            {
+                config.QueryParameters.StartDateTime = 
+                    today.ToString("yyyy-MM-ddTHH:mm:ss");
+                config.QueryParameters.EndDateTime = 
+                    tomorrow.ToString("yyyy-MM-ddTHH:mm:ss");
+                config.QueryParameters.Orderby = new[] { "start/dateTime" };
+            });
+
+        Console.WriteLine($"\n=== Agenda for {today:dddd, MMMM dd, yyyy} ===\n");
+
+        if (events.Value.Count == 0)
+        {
+            Console.WriteLine("No meetings scheduled today.");
+            return;
+        }
+
+        foreach (var evt in events.Value)
+        {
+            var startTime = DateTime.Parse(evt.Start.DateTime);
+            var endTime = DateTime.Parse(evt.End.DateTime);
+            
+            Console.WriteLine($"{startTime:HH:mm} - {endTime:HH:mm}");
+            Console.WriteLine($"  {evt.Subject}");
+            
+            if (!string.IsNullOrEmpty(evt.Location?.DisplayName))
+            {
+                Console.WriteLine($"  Location: {evt.Location.DisplayName}");
+            }
+
+            if (evt.OnlineMeeting != null)
+            {
+                Console.WriteLine($"  Teams: {evt.OnlineMeeting.JoinUrl}");
+            }
+
+            if (evt.Attendees?.Any() == true)
+            {
+                Console.WriteLine($"  Attendees: {evt.Attendees.Count}");
+            }
+
+            Console.WriteLine();
+        }
+    }
+}
+```
+
+## Next Steps
+
+- [Working with Mail](/guides/working-with-mail) - Send meeting invitations
+- [Working with Users](/guides/working-with-users) - Find user availability
+- [API Reference](/api-reference/calendar) - Complete Calendar API reference

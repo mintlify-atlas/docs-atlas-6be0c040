@@ -1,0 +1,518 @@
+---
+title: 'DriveItems'
+description: 'File and folder operations in Microsoft Graph'
+---
+
+## Overview
+
+The DriveItems API provides operations to manage files and folders in OneDrive and SharePoint. Access through drive paths like `graphClient.Me.Drive.Items[itemId]` or `graphClient.Me.Drive.Root.ItemWithPath(path)`.
+
+## Request Builders
+
+```csharp
+// By item ID
+graphClient.Me.Drive.Items["item-id"]
+graphClient.Drives["drive-id"].Items["item-id"]
+
+// By path from root
+graphClient.Me.Drive.Root.ItemWithPath("Documents/file.pdf")
+
+// Root folder
+graphClient.Me.Drive.Root
+```
+
+## Get DriveItem
+
+Retrieve file or folder metadata.
+
+```csharp
+// By ID
+var item = await graphClient.Me.Drive.Items["item-id"].GetAsync();
+
+// By path
+var item = await graphClient.Me.Drive.Root
+    .ItemWithPath("Documents/Report.pdf")
+    .GetAsync();
+
+if (item.Folder != null)
+{
+    Console.WriteLine($"Folder: {item.Name} ({item.Folder.ChildCount} items)");
+}
+else if (item.File != null)
+{
+    Console.WriteLine($"File: {item.Name} ({item.Size} bytes)");
+    Console.WriteLine($"MIME type: {item.File.MimeType}");
+}
+```
+
+## Upload Files
+
+### Small File Upload (< 4MB)
+
+```csharp
+using var fileStream = File.OpenRead("document.pdf");
+
+var uploadedItem = await graphClient.Me.Drive.Root
+    .ItemWithPath("Documents/document.pdf")
+    .Content
+    .PutAsync(fileStream);
+
+Console.WriteLine($"Uploaded: {uploadedItem.Id}");
+```
+
+### Large File Upload (>= 4MB)
+
+```csharp
+using var fileStream = File.OpenRead("large-video.mp4");
+
+// Create upload session
+var uploadSession = await graphClient.Me.Drive.Root
+    .ItemWithPath("Videos/large-video.mp4")
+    .CreateUploadSession
+    .PostAsync(new CreateUploadSessionPostRequestBody
+    {
+        Item = new DriveItemUploadableProperties
+        {
+            AdditionalData = new Dictionary<string, object>
+            {
+                { "@microsoft.graph.conflictBehavior", "rename" }
+            }
+        }
+    });
+
+// Upload in chunks
+int maxChunkSize = 320 * 1024 * 10; // 3.2 MB
+var fileUploadTask = new LargeFileUploadTask<DriveItem>(
+    uploadSession, fileStream, maxChunkSize);
+
+var uploadResult = await fileUploadTask.UploadAsync();
+
+if (uploadResult.UploadSucceeded)
+{
+    Console.WriteLine($"Upload complete: {uploadResult.ItemResponse.Id}");
+}
+```
+
+## Download Files
+
+### Download File Content
+
+```csharp
+var stream = await graphClient.Me.Drive.Items["item-id"]
+    .Content
+    .GetAsync();
+
+using var fileStream = File.Create("downloaded-file.pdf");
+await stream.CopyToAsync(fileStream);
+```
+
+### Get Download URL
+
+```csharp
+var item = await graphClient.Me.Drive.Items["item-id"].GetAsync();
+var downloadUrl = item.AdditionalData["@microsoft.graph.downloadUrl"] as string;
+
+Console.WriteLine($"Download URL: {downloadUrl}");
+// URL is temporary and expires
+```
+
+## Folder Operations
+
+### Create Folder
+
+```csharp
+var newFolder = new DriveItem
+{
+    Name = "Project Files",
+    Folder = new Folder { },
+    AdditionalData = new Dictionary<string, object>
+    {
+        { "@microsoft.graph.conflictBehavior", "rename" }
+    }
+};
+
+var folder = await graphClient.Me.Drive.Items["parent-folder-id"]
+    .Children
+    .PostAsync(newFolder);
+```
+
+### List Folder Contents
+
+```csharp
+var children = await graphClient.Me.Drive.Items["folder-id"]
+    .Children
+    .GetAsync();
+
+foreach (var item in children.Value)
+{
+    var type = item.Folder != null ? "Folder" : "File";
+    Console.WriteLine($"[{type}] {item.Name}");
+}
+```
+
+## Copy and Move
+
+### Copy Item
+
+```csharp
+var copyRequest = new CopyPostRequestBody
+{
+    ParentReference = new ItemReference
+    {
+        DriveId = "destination-drive-id",
+        Id = "destination-folder-id"
+    },
+    Name = "Copy of Document.pdf"
+};
+
+var monitorUrl = await graphClient.Me.Drive.Items["item-id"]
+    .Copy
+    .PostAsync(copyRequest);
+
+// Monitor operation status
+// Use the returned URL to check progress
+```
+
+### Move Item
+
+```csharp
+var updateItem = new DriveItem
+{
+    ParentReference = new ItemReference
+    {
+        Id = "destination-folder-id"
+    },
+    Name = "Renamed Document.pdf" // Optional: rename while moving
+};
+
+await graphClient.Me.Drive.Items["item-id"].PatchAsync(updateItem);
+```
+
+## Rename Item
+
+```csharp
+var updateItem = new DriveItem
+{
+    Name = "New Filename.pdf"
+};
+
+await graphClient.Me.Drive.Items["item-id"].PatchAsync(updateItem);
+```
+
+## Delete Item
+
+```csharp
+// Move to recycle bin
+await graphClient.Me.Drive.Items["item-id"].DeleteAsync();
+
+// Permanent delete (bypass recycle bin)
+await graphClient.Me.Drive.Items["item-id"]
+    .PermanentDelete
+    .PostAsync();
+```
+
+## Sharing
+
+### Create Sharing Link
+
+```csharp
+var sharingLink = await graphClient.Me.Drive.Items["item-id"]
+    .CreateLink
+    .PostAsync(new CreateLinkPostRequestBody
+    {
+        Type = "view", // view, edit, embed
+        Scope = "anonymous" // anonymous, organization
+    });
+
+Console.WriteLine($"Share URL: {sharingLink.Link.WebUrl}");
+```
+
+### Grant Permissions
+
+```csharp
+var invite = await graphClient.Me.Drive.Items["item-id"]
+    .Invite
+    .PostAsync(new InvitePostRequestBody
+    {
+        RequireSignIn = true,
+        SendInvitation = true,
+        Roles = new[] { "read" }, // read, write
+        Recipients = new List<DriveRecipient>
+        {
+            new DriveRecipient
+            {
+                Email = "user@contoso.com"
+            }
+        },
+        Message = "Please review this document"
+    });
+```
+
+### List Permissions
+
+```csharp
+var permissions = await graphClient.Me.Drive.Items["item-id"]
+    .Permissions
+    .GetAsync();
+
+foreach (var permission in permissions.Value)
+{
+    Console.WriteLine($"Type: {permission.Link?.Type ?? "Direct"}");
+    Console.WriteLine($"Roles: {string.Join(", ", permission.Roles)}");
+}
+```
+
+### Remove Permission
+
+```csharp
+await graphClient.Me.Drive.Items["item-id"]
+    .Permissions["permission-id"]
+    .DeleteAsync();
+```
+
+## Versions
+
+### List Versions
+
+```csharp
+var versions = await graphClient.Me.Drive.Items["item-id"]
+    .Versions
+    .GetAsync();
+
+foreach (var version in versions.Value)
+{
+    Console.WriteLine($"Version {version.Id}");
+    Console.WriteLine($"  Modified: {version.LastModifiedDateTime}");
+    Console.WriteLine($"  Modified by: {version.LastModifiedBy.User.DisplayName}");
+    Console.WriteLine($"  Size: {version.Size} bytes");
+}
+```
+
+### Restore Version
+
+```csharp
+await graphClient.Me.Drive.Items["item-id"]
+    .Versions["version-id"]
+    .RestoreVersion
+    .PostAsync();
+```
+
+### Download Version
+
+```csharp
+var stream = await graphClient.Me.Drive.Items["item-id"]
+    .Versions["version-id"]
+    .Content
+    .GetAsync();
+```
+
+## Thumbnails
+
+```csharp
+var thumbnails = await graphClient.Me.Drive.Items["item-id"]
+    .Thumbnails
+    .GetAsync();
+
+foreach (var set in thumbnails.Value)
+{
+    Console.WriteLine($"Large: {set.Large?.Url}");
+    Console.WriteLine($"Medium: {set.Medium?.Url}");
+    Console.WriteLine($"Small: {set.Small?.Url}");
+}
+
+// Get specific size
+var customThumbnail = await graphClient.Me.Drive.Items["item-id"]
+    .Thumbnails["0"]
+    .GetAsync();
+```
+
+## Search
+
+```csharp
+// Search in folder
+var results = await graphClient.Me.Drive.Items["folder-id"]
+    .Search("project")
+    .GetAsync();
+
+// Search entire drive
+var results = await graphClient.Me.Drive.Root
+    .Search("*.pdf")
+    .GetAsync();
+
+foreach (var item in results.Value)
+{
+    Console.WriteLine($"{item.Name} - {item.WebUrl}");
+}
+```
+
+## Checkout/Checkin
+
+### Checkout File
+
+```csharp
+await graphClient.Me.Drive.Items["item-id"]
+    .Checkout
+    .PostAsync();
+```
+
+### Checkin File
+
+```csharp
+await graphClient.Me.Drive.Items["item-id"]
+    .Checkin
+    .PostAsync(new CheckinPostRequestBody
+    {
+        Comment = "Updated financial data",
+        CheckInAs = "majorVersion" // minorVersion, majorVersion, overwrite
+    });
+```
+
+### Undo Checkout
+
+```csharp
+await graphClient.Me.Drive.Items["item-id"]
+    .UndoCheckout
+    .PostAsync();
+```
+
+## Preview
+
+Get preview information for Office files.
+
+```csharp
+var preview = await graphClient.Me.Drive.Items["item-id"]
+    .Preview
+    .PostAsync(new PreviewPostRequestBody
+    {
+        Viewer = "onedrive" // onedrive, officeonline
+    });
+
+Console.WriteLine($"Preview URL: {preview.GetUrl}");
+```
+
+## Analytics
+
+Get item analytics and activity.
+
+```csharp
+var analytics = await graphClient.Me.Drive.Items["item-id"]
+    .Analytics
+    .GetAsync();
+
+var itemActivity = analytics.ItemActivityStats;
+foreach (var activity in itemActivity)
+{
+    Console.WriteLine($"Access: {activity.Access.ActionCount}");
+    Console.WriteLine($"Period: {activity.StartDateTime} to {activity.EndDateTime}");
+}
+```
+
+## Delta Query
+
+Track changes to items.
+
+```csharp
+var delta = await graphClient.Me.Drive.Root.Delta.GetAsync();
+
+foreach (var item in delta.Value)
+{
+    if (item.Deleted != null)
+    {
+        Console.WriteLine($"Deleted: {item.Name}");
+    }
+    else
+    {
+        Console.WriteLine($"Changed: {item.Name}");
+    }
+}
+
+// Store delta link
+var deltaLink = delta.OdataDeltaLink;
+```
+
+## Get Changes for Specific Item
+
+```csharp
+var delta = await graphClient.Me.Drive.Items["folder-id"]
+    .Delta
+    .GetAsync();
+```
+
+## Special Operations
+
+### Follow/Unfollow
+
+```csharp
+// Follow
+await graphClient.Me.Drive.Items["item-id"].Follow.PostAsync();
+
+// Unfollow
+await graphClient.Me.Drive.Items["item-id"].Unfollow.PostAsync();
+```
+
+### Extract Sensitivity Labels
+
+```csharp
+var extraction = await graphClient.Me.Drive.Items["item-id"]
+    .ExtractSensitivityLabels
+    .PostAsync();
+```
+
+## Conflict Behavior
+
+When creating or uploading items:
+
+```csharp
+AdditionalData = new Dictionary<string, object>
+{
+    { "@microsoft.graph.conflictBehavior", "rename" }
+    // Options: rename, replace, fail
+}
+```
+
+## Error Handling
+
+```csharp
+using Microsoft.Graph.Models.ODataErrors;
+
+try
+{
+    var item = await graphClient.Me.Drive.Items["item-id"].GetAsync();
+}
+catch (ODataError error)
+{
+    if (error.Error.Code == "itemNotFound")
+    {
+        Console.WriteLine("Item not found");
+    }
+    else if (error.Error.Code == "accessDenied")
+    {
+        Console.WriteLine("Access denied");
+    }
+    else if (error.Error.Code == "nameAlreadyExists")
+    {
+        Console.WriteLine("An item with this name already exists");
+    }
+    else
+    {
+        Console.WriteLine($"Error: {error.Error.Message}");
+    }
+}
+```
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="DriveItem Model" href="https://learn.microsoft.com/graph/api/resources/driveitem" icon="file">
+    DriveItem properties
+  </Card>
+  <Card title="Drives API" href="/api-reference/drives" icon="hard-drive">
+    Drive operations
+  </Card>
+  <Card title="Sites API" href="/api-reference/sites" icon="sitemap">
+    SharePoint sites
+  </Card>
+  <Card title="File Upload Guide" href="/guides/file-upload" icon="cloud-arrow-up">
+    Complete upload guide
+  </Card>
+</CardGroup>

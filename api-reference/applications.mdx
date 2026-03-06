@@ -1,0 +1,494 @@
+---
+title: 'Applications'
+description: 'Application registration management in Microsoft Graph'
+---
+
+## Overview
+
+The Applications API provides operations to manage Azure AD application registrations. Access through `graphClient.Applications`.
+
+## Request Builder
+
+```csharp
+public ApplicationsRequestBuilder Applications { get; }
+```
+
+Accessed via: `graphClient.Applications`
+
+## Operations
+
+### List Applications
+
+Retrieve all application registrations.
+
+```csharp
+var applications = await graphClient.Applications.GetAsync();
+
+foreach (var app in applications.Value)
+{
+    Console.WriteLine($"{app.DisplayName}");
+    Console.WriteLine($"  App ID: {app.AppId}");
+    Console.WriteLine($"  Object ID: {app.Id}");
+}
+
+// Filter applications
+var filteredApps = await graphClient.Applications.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "startsWith(displayName,'MyApp')";
+    config.QueryParameters.Select = new[] { "id", "appId", "displayName" };
+});
+```
+
+**Query Parameters:**
+
+<ParamField path="$select" type="string[]">
+  Properties to return
+</ParamField>
+
+<ParamField path="$filter" type="string">
+  Filter expression
+</ParamField>
+
+<ParamField path="$orderby" type="string[]">
+  Sort order
+</ParamField>
+
+<ParamField path="$top" type="int">
+  Number of applications to return
+</ParamField>
+
+<ParamField path="$search" type="string">
+  Search query (requires ConsistencyLevel header)
+</ParamField>
+
+### Get Application by ID
+
+```csharp
+// By object ID
+var app = await graphClient.Applications["object-id"].GetAsync();
+
+// By app ID (alternate key)
+var app = await graphClient.ApplicationsWithAppId("app-id").GetAsync();
+
+Console.WriteLine($"Display Name: {app.DisplayName}");
+Console.WriteLine($"App ID: {app.AppId}");
+Console.WriteLine($"Sign-in audience: {app.SignInAudience}");
+```
+
+### Create Application
+
+```csharp
+var newApp = new Application
+{
+    DisplayName = "My Application",
+    SignInAudience = "AzureADMyOrg",
+    RequiredResourceAccess = new List<RequiredResourceAccess>
+    {
+        new RequiredResourceAccess
+        {
+            ResourceAppId = "00000003-0000-0000-c000-000000000000", // Microsoft Graph
+            ResourceAccess = new List<ResourceAccess>
+            {
+                new ResourceAccess
+                {
+                    Id = Guid.Parse("e1fe6dd8-ba31-4d61-89e7-88639da4683d"), // User.Read
+                    Type = "Scope"
+                },
+                new ResourceAccess
+                {
+                    Id = Guid.Parse("df021288-bdef-4463-88db-98f22de89214"), // User.Read.All
+                    Type = "Role"
+                }
+            }
+        }
+    },
+    Web = new WebApplication
+    {
+        RedirectUris = new List<string>
+        {
+            "https://localhost:5001/signin-oidc"
+        },
+        ImplicitGrantSettings = new ImplicitGrantSettings
+        {
+            EnableIdTokenIssuance = true
+        }
+    },
+    Api = new ApiApplication
+    {
+        Oauth2PermissionScopes = new List<PermissionScope>
+        {
+            new PermissionScope
+            {
+                AdminConsentDescription = "Allow app to read data",
+                AdminConsentDisplayName = "Read data",
+                Id = Guid.NewGuid(),
+                IsEnabled = true,
+                Type = "User",
+                UserConsentDescription = "Allow app to read your data",
+                UserConsentDisplayName = "Read your data",
+                Value = "Data.Read"
+            }
+        }
+    }
+};
+
+var app = await graphClient.Applications.PostAsync(newApp);
+Console.WriteLine($"Created app: {app.AppId}");
+```
+
+### Update Application
+
+```csharp
+var updateApp = new Application
+{
+    DisplayName = "Updated App Name",
+    Tags = new[] { "WindowsAzureActiveDirectoryIntegratedApp" }
+};
+
+await graphClient.Applications["object-id"].PatchAsync(updateApp);
+```
+
+### Delete Application
+
+```csharp
+await graphClient.Applications["object-id"].DeleteAsync();
+```
+
+## Owners
+
+### List Owners
+
+```csharp
+var owners = await graphClient.Applications["object-id"].Owners.GetAsync();
+
+foreach (var owner in owners.Value)
+{
+    if (owner is User user)
+    {
+        Console.WriteLine($"Owner: {user.DisplayName}");
+    }
+}
+```
+
+### Add Owner
+
+```csharp
+var ownerRef = new ReferenceCreate
+{
+    OdataId = $"https://graph.microsoft.com/v1.0/users/{userId}"
+};
+
+await graphClient.Applications["object-id"].Owners.Ref.PostAsync(ownerRef);
+```
+
+### Remove Owner
+
+```csharp
+await graphClient.Applications["object-id"].Owners["user-id"].Ref.DeleteAsync();
+```
+
+## Certificates and Secrets
+
+### Add Password Credential (Client Secret)
+
+```csharp
+var passwordCredential = new AddPasswordPostRequestBody
+{
+    PasswordCredential = new PasswordCredential
+    {
+        DisplayName = "My Client Secret",
+        EndDateTime = DateTime.UtcNow.AddMonths(6)
+    }
+};
+
+var credential = await graphClient.Applications["object-id"]
+    .AddPassword
+    .PostAsync(passwordCredential);
+
+Console.WriteLine($"Secret: {credential.SecretText}");
+Console.WriteLine($"Key ID: {credential.KeyId}");
+// Store the secret securely - it's only shown once!
+```
+
+### Remove Password Credential
+
+```csharp
+var removePassword = new RemovePasswordPostRequestBody
+{
+    KeyId = Guid.Parse("key-id")
+};
+
+await graphClient.Applications["object-id"]
+    .RemovePassword
+    .PostAsync(removePassword);
+```
+
+### Add Certificate
+
+```csharp
+using System.Security.Cryptography.X509Certificates;
+
+var certificate = new X509Certificate2("path/to/cert.pfx", "password");
+
+var keyCredential = new AddKeyPostRequestBody
+{
+    KeyCredential = new KeyCredential
+    {
+        Type = "AsymmetricX509Cert",
+        Usage = "Verify",
+        Key = certificate.RawData,
+        DisplayName = "My Certificate"
+    },
+    PasswordCredential = null,
+    Proof = "proof-token" // Required for key verification
+};
+
+var key = await graphClient.Applications["object-id"]
+    .AddKey
+    .PostAsync(keyCredential);
+```
+
+### Remove Certificate
+
+```csharp
+var removeKey = new RemoveKeyPostRequestBody
+{
+    KeyId = Guid.Parse("key-id"),
+    Proof = "proof-token"
+};
+
+await graphClient.Applications["object-id"]
+    .RemoveKey
+    .PostAsync(removeKey);
+```
+
+## Extension Properties
+
+### List Extension Properties
+
+```csharp
+var extensions = await graphClient.Applications["object-id"]
+    .ExtensionProperties
+    .GetAsync();
+
+foreach (var ext in extensions.Value)
+{
+    Console.WriteLine($"{ext.Name}: {ext.DataType}");
+}
+```
+
+### Create Extension Property
+
+```csharp
+var extensionProperty = new ExtensionProperty
+{
+    Name = "customAttribute",
+    DataType = "String",
+    TargetObjects = new[] { "User" }
+};
+
+var ext = await graphClient.Applications["object-id"]
+    .ExtensionProperties
+    .PostAsync(extensionProperty);
+```
+
+## Federated Identity Credentials
+
+### List Federated Credentials
+
+```csharp
+var credentials = await graphClient.Applications["object-id"]
+    .FederatedIdentityCredentials
+    .GetAsync();
+```
+
+### Create Federated Credential
+
+```csharp
+var federatedCred = new FederatedIdentityCredential
+{
+    Name = "GitHubActions",
+    Issuer = "https://token.actions.githubusercontent.com",
+    Subject = "repo:organization/repository:environment:production",
+    Description = "GitHub Actions deployment",
+    Audiences = new[] { "api://AzureADTokenExchange" }
+};
+
+await graphClient.Applications["object-id"]
+    .FederatedIdentityCredentials
+    .PostAsync(federatedCred);
+```
+
+## Logo
+
+### Set Application Logo
+
+```csharp
+using var logoStream = File.OpenRead("logo.png");
+
+await graphClient.Applications["object-id"]
+    .Logo
+    .PutAsync(logoStream);
+```
+
+### Get Application Logo
+
+```csharp
+var logoStream = await graphClient.Applications["object-id"]
+    .Logo
+    .GetAsync();
+
+using var fileStream = File.Create("downloaded-logo.png");
+await logoStream.CopyToAsync(fileStream);
+```
+
+## Token Issuance Policies
+
+### List Token Issuance Policies
+
+```csharp
+var policies = await graphClient.Applications["object-id"]
+    .TokenIssuancePolicies
+    .GetAsync();
+```
+
+## Token Lifetime Policies
+
+### List Token Lifetime Policies
+
+```csharp
+var policies = await graphClient.Applications["object-id"]
+    .TokenLifetimePolicies
+    .GetAsync();
+```
+
+## Common Scenarios
+
+### Create Web Application with Redirect URIs
+
+```csharp
+var webApp = new Application
+{
+    DisplayName = "My Web App",
+    SignInAudience = "AzureADMultipleOrgs",
+    Web = new WebApplication
+    {
+        RedirectUris = new List<string>
+        {
+            "https://myapp.com/signin-oidc",
+            "https://myapp.com/signout-callback-oidc"
+        },
+        LogoutUrl = "https://myapp.com/signout-oidc"
+    }
+};
+
+var app = await graphClient.Applications.PostAsync(webApp);
+```
+
+### Create SPA Application
+
+```csharp
+var spaApp = new Application
+{
+    DisplayName = "My SPA",
+    SignInAudience = "AzureADandPersonalMicrosoftAccount",
+    Spa = new SpaApplication
+    {
+        RedirectUris = new List<string>
+        {
+            "http://localhost:3000",
+            "https://myspa.com"
+        }
+    },
+    RequiredResourceAccess = new List<RequiredResourceAccess>
+    {
+        new RequiredResourceAccess
+        {
+            ResourceAppId = "00000003-0000-0000-c000-000000000000",
+            ResourceAccess = new List<ResourceAccess>
+            {
+                new ResourceAccess
+                {
+                    Id = Guid.Parse("e1fe6dd8-ba31-4d61-89e7-88639da4683d"),
+                    Type = "Scope"
+                }
+            }
+        }
+    }
+};
+```
+
+### Create Native/Mobile Application
+
+```csharp
+var nativeApp = new Application
+{
+    DisplayName = "My Mobile App",
+    SignInAudience = "AzureADandPersonalMicrosoftAccount",
+    PublicClient = new PublicClientApplication
+    {
+        RedirectUris = new List<string>
+        {
+            "msauth.com.mycompany.myapp://auth",
+            "http://localhost"
+        }
+    },
+    IsFallbackPublicClient = true
+};
+```
+
+## Delta Query
+
+```csharp
+var delta = await graphClient.Applications.Delta.GetAsync();
+
+foreach (var app in delta.Value)
+{
+    Console.WriteLine($"Changed: {app.DisplayName}");
+}
+
+var deltaLink = delta.OdataDeltaLink;
+```
+
+## Error Handling
+
+```csharp
+using Microsoft.Graph.Models.ODataErrors;
+
+try
+{
+    var app = await graphClient.Applications["object-id"].GetAsync();
+}
+catch (ODataError error)
+{
+    if (error.Error.Code == "Request_ResourceNotFound")
+    {
+        Console.WriteLine("Application not found");
+    }
+    else if (error.Error.Code == "Authorization_RequestDenied")
+    {
+        Console.WriteLine("Insufficient permissions");
+    }
+    else
+    {
+        Console.WriteLine($"Error: {error.Error.Message}");
+    }
+}
+```
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Application Model" href="https://learn.microsoft.com/graph/api/resources/application" icon="window-maximize">
+    Application properties
+  </Card>
+  <Card title="Service Principals" href="/api-reference/service-principals" icon="cogs">
+    Service principal management
+  </Card>
+  <Card title="OAuth2 Permission Grants" href="/api-reference/oauth2-permission-grants" icon="key">
+    Permission grants
+  </Card>
+  <Card title="App Registrations" href="https://learn.microsoft.com/azure/active-directory/develop/quickstart-register-app" icon="link">
+    Azure AD documentation
+  </Card>
+</CardGroup>

@@ -1,0 +1,341 @@
+---
+title: 'Users'
+description: 'User management operations in Microsoft Graph'
+---
+
+## Overview
+
+The Users API provides operations to manage user entities in Azure Active Directory. Access through `graphClient.Users`.
+
+## Request Builder
+
+```csharp
+public UsersRequestBuilder Users { get; }
+```
+
+Accessed via: `graphClient.Users`
+
+## Operations
+
+### List Users
+
+Retrieve a list of user objects.
+
+```csharp
+public async Task<UserCollectionResponse> GetAsync(
+    Action<RequestConfiguration<UsersRequestBuilderGetQueryParameters>> requestConfiguration = default,
+    CancellationToken cancellationToken = default
+)
+```
+
+**Query Parameters:**
+
+<ParamField path="$select" type="string[]">
+  Properties to include in response (e.g., `["id", "displayName", "mail"]`)
+</ParamField>
+
+<ParamField path="$filter" type="string">
+  Filter expression (e.g., `"startsWith(displayName,'John')"`, `"accountEnabled eq true"`)
+</ParamField>
+
+<ParamField path="$orderby" type="string[]">
+  Sort order (e.g., `["displayName"]`, `["createdDateTime desc"]`)
+</ParamField>
+
+<ParamField path="$top" type="int">
+  Number of items to return (max 999)
+</ParamField>
+
+<ParamField path="$search" type="string">
+  Search query (requires `ConsistencyLevel: eventual` header)
+</ParamField>
+
+<ParamField path="$count" type="bool">
+  Include count of items in response
+</ParamField>
+
+<ParamField path="$expand" type="string[]">
+  Related entities to expand (e.g., `["manager"]`, `["memberOf"]`)
+</ParamField>
+
+**Response:**
+
+<ResponseField name="value" type="User[]">
+  Array of user objects
+</ResponseField>
+
+<ResponseField name="@odata.nextLink" type="string">
+  URL for next page of results (if paginated)
+</ResponseField>
+
+**Example:**
+
+```csharp
+// Get all users
+var users = await graphClient.Users.GetAsync();
+
+foreach (var user in users.Value)
+{
+    Console.WriteLine($"{user.DisplayName} - {user.Mail}");
+}
+
+// Filter users
+var activeUsers = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "accountEnabled eq true";
+    config.QueryParameters.Select = new[] { "id", "displayName", "mail" };
+    config.QueryParameters.Top = 100;
+});
+
+// Search users (requires ConsistencyLevel header)
+var searchResults = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Search = "\"displayName:John\"";
+    config.QueryParameters.Count = true;
+    config.Headers.Add("ConsistencyLevel", "eventual");
+});
+```
+
+### Create User
+
+Create a new user account.
+
+```csharp
+public async Task<User> PostAsync(
+    User body,
+    Action<RequestConfiguration<DefaultQueryParameters>> requestConfiguration = default,
+    CancellationToken cancellationToken = default
+)
+```
+
+<ParamField path="body" type="User" required>
+  User object with required properties
+</ParamField>
+
+**Required Properties:**
+
+- `AccountEnabled` - Enable or disable the account
+- `DisplayName` - User's display name
+- `MailNickname` - Email alias
+- `UserPrincipalName` - User's sign-in name
+- `PasswordProfile` - Password settings (for password authentication)
+
+**Example:**
+
+```csharp
+var newUser = new User
+{
+    AccountEnabled = true,
+    DisplayName = "John Doe",
+    MailNickname = "johnd",
+    UserPrincipalName = "johnd@contoso.com",
+    PasswordProfile = new PasswordProfile
+    {
+        ForceChangePasswordNextSignIn = true,
+        Password = "TempPassword123!"
+    },
+    Department = "Engineering",
+    JobTitle = "Software Engineer"
+};
+
+var user = await graphClient.Users.PostAsync(newUser);
+Console.WriteLine($"Created user: {user.Id}");
+```
+
+### Get User by ID
+
+Retrieve a specific user by their ID.
+
+```csharp
+var user = await graphClient.Users["user-id"].GetAsync();
+
+// Select specific properties
+var user = await graphClient.Users["user-id"].GetAsync(config =>
+{
+    config.QueryParameters.Select = new[] { "id", "displayName", "mail", "jobTitle" };
+});
+```
+
+### Update User
+
+Update user properties.
+
+```csharp
+var userToUpdate = new User
+{
+    JobTitle = "Senior Software Engineer",
+    Department = "Engineering - Cloud",
+    MobilePhone = "+1 555-0123"
+};
+
+await graphClient.Users["user-id"].PatchAsync(userToUpdate);
+```
+
+### Delete User
+
+Delete a user account.
+
+```csharp
+await graphClient.Users["user-id"].DeleteAsync();
+```
+
+## Additional Methods
+
+### Delta Query
+
+Get incremental changes to users.
+
+```csharp
+var deltaResponse = await graphClient.Users.Delta.GetAsync();
+
+// Process users
+foreach (var user in deltaResponse.Value)
+{
+    Console.WriteLine($"Changed user: {user.DisplayName}");
+}
+
+// Get next delta
+if (deltaResponse.OdataDeltaLink != null)
+{
+    // Store deltaLink for next query
+}
+```
+
+### Get by IDs
+
+Retrieve multiple users by their IDs.
+
+```csharp
+var requestBody = new GetByIdsPostRequestBody
+{
+    Ids = new List<string>
+    {
+        "user-id-1",
+        "user-id-2",
+        "user-id-3"
+    },
+    Types = new List<string> { "user" }
+};
+
+var users = await graphClient.Users.GetByIds.PostAsync(requestBody);
+```
+
+### Count Users
+
+```csharp
+var count = await graphClient.Users.Count.GetAsync();
+Console.WriteLine($"Total users: {count}");
+```
+
+## User Item Operations
+
+Access nested resources for a specific user:
+
+```csharp
+var userId = "user-id";
+var userBuilder = graphClient.Users[userId];
+
+// Messages
+var messages = await userBuilder.Messages.GetAsync();
+
+// Calendar
+var calendar = await userBuilder.Calendar.GetAsync();
+
+// Events
+var events = await userBuilder.Events.GetAsync();
+
+// Drive
+var drive = await userBuilder.Drive.GetAsync();
+
+// Manager
+var manager = await userBuilder.Manager.GetAsync();
+
+// Direct reports
+var reports = await userBuilder.DirectReports.GetAsync();
+
+// Member of (groups)
+var groups = await userBuilder.MemberOf.GetAsync();
+
+// Send mail
+var message = new Message
+{
+    Subject = "Test",
+    Body = new ItemBody { Content = "Hello", ContentType = BodyType.Text },
+    ToRecipients = new[] { new Recipient { EmailAddress = new EmailAddress { Address = "user@domain.com" } } }
+};
+await userBuilder.SendMail.PostAsync(new SendMailPostRequestBody { Message = message });
+```
+
+## Common Filtering Examples
+
+```csharp
+// Users in a department
+config.QueryParameters.Filter = "department eq 'Sales'";
+
+// Users created after a date
+config.QueryParameters.Filter = "createdDateTime ge 2024-01-01T00:00:00Z";
+
+// Users with a specific domain
+config.QueryParameters.Filter = "endsWith(mail,'@contoso.com')";
+
+// Active external users
+config.QueryParameters.Filter = "accountEnabled eq true and userType eq 'Guest'";
+
+// Users without a manager
+config.QueryParameters.Filter = "manager/id eq null";
+```
+
+## Pagination
+
+Handle large result sets:
+
+```csharp
+var allUsers = new List<User>();
+var response = await graphClient.Users.GetAsync(config =>
+{
+    config.QueryParameters.Top = 100;
+});
+
+allUsers.AddRange(response.Value);
+
+while (response.OdataNextLink != null)
+{
+    response = await graphClient.Users
+        .WithUrl(response.OdataNextLink)
+        .GetAsync();
+    allUsers.AddRange(response.Value);
+}
+```
+
+## Error Handling
+
+```csharp
+using Microsoft.Graph.Models.ODataErrors;
+
+try
+{
+    var user = await graphClient.Users["invalid-id"].GetAsync();
+}
+catch (ODataError error)
+{
+    Console.WriteLine($"Error: {error.Error.Code}");
+    Console.WriteLine($"Message: {error.Error.Message}");
+}
+```
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="User Model" href="https://learn.microsoft.com/graph/api/resources/user" icon="user">
+    User resource properties
+  </Card>
+  <Card title="Messages API" href="/api-reference/messages" icon="envelope">
+    User messages operations
+  </Card>
+  <Card title="Calendar API" href="/api-reference/calendar" icon="calendar">
+    User calendar operations
+  </Card>
+  <Card title="Groups API" href="/api-reference/groups" icon="users-rectangle">
+    Group management
+  </Card>
+</CardGroup>

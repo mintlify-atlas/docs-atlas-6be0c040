@@ -1,0 +1,381 @@
+---
+title: 'Directory Objects'
+description: 'Base directory object operations in Microsoft Graph'
+---
+
+## Overview
+
+Directory objects are the base type for many directory entities including users, groups, devices, and service principals. The DirectoryObjects API provides common operations across these entity types.
+
+## Request Builder
+
+```csharp
+public DirectoryObjectsRequestBuilder DirectoryObjects { get; }
+```
+
+Accessed via: `graphClient.DirectoryObjects`
+
+## Operations
+
+### List Directory Objects
+
+Retrieve directory objects.
+
+```csharp
+var directoryObjects = await graphClient.DirectoryObjects.GetAsync();
+
+foreach (var obj in directoryObjects.Value)
+{
+    Console.WriteLine($"{obj.Id} - Type: {obj.OdataType}");
+}
+```
+
+### Get Directory Object by ID
+
+Retrieve a specific directory object.
+
+```csharp
+var directoryObject = await graphClient.DirectoryObjects["object-id"].GetAsync();
+
+// Cast to specific type
+if (directoryObject is User user)
+{
+    Console.WriteLine($"User: {user.DisplayName}");
+}
+else if (directoryObject is Group group)
+{
+    Console.WriteLine($"Group: {group.DisplayName}");
+}
+else if (directoryObject is Device device)
+{
+    Console.WriteLine($"Device: {device.DisplayName}");
+}
+```
+
+### Delete Directory Object
+
+```csharp
+await graphClient.DirectoryObjects["object-id"].DeleteAsync();
+```
+
+## Get By IDs
+
+Retrieve multiple directory objects by their IDs in a single request.
+
+```csharp
+var requestBody = new GetByIdsPostRequestBody
+{
+    Ids = new List<string>
+    {
+        "user-id-1",
+        "group-id-1",
+        "device-id-1"
+    },
+    Types = new List<string>
+    {
+        "user",
+        "group",
+        "device"
+    }
+};
+
+var result = await graphClient.DirectoryObjects.GetByIds.PostAsync(requestBody);
+
+foreach (var obj in result.Value)
+{
+    if (obj is User user)
+    {
+        Console.WriteLine($"User: {user.DisplayName}");
+    }
+    else if (obj is Group group)
+    {
+        Console.WriteLine($"Group: {group.DisplayName}");
+    }
+}
+```
+
+<ParamField path="Ids" type="List<string>" required>
+  List of object IDs to retrieve (max 1000)
+</ParamField>
+
+<ParamField path="Types" type="List<string>">
+  Optional list of resource types to filter (e.g., "user", "group", "device")
+</ParamField>
+
+## Check Member Groups
+
+Get all groups that a directory object is a member of.
+
+```csharp
+// Check specific groups
+var requestBody = new CheckMemberGroupsPostRequestBody
+{
+    GroupIds = new List<string>
+    {
+        "group-id-1",
+        "group-id-2",
+        "group-id-3"
+    }
+};
+
+var memberGroups = await graphClient.DirectoryObjects["object-id"]
+    .CheckMemberGroups
+    .PostAsync(requestBody);
+
+foreach (var groupId in memberGroups.Value)
+{
+    Console.WriteLine($"Member of group: {groupId}");
+}
+```
+
+## Get Member Groups
+
+Get all groups that a directory object is a member of (transitively).
+
+```csharp
+var requestBody = new GetMemberGroupsPostRequestBody
+{
+    SecurityEnabledOnly = false // Include all groups, not just security groups
+};
+
+var memberGroups = await graphClient.DirectoryObjects["object-id"]
+    .GetMemberGroups
+    .PostAsync(requestBody);
+
+foreach (var groupId in memberGroups.Value)
+{
+    Console.WriteLine($"Member of: {groupId}");
+}
+```
+
+<ParamField path="SecurityEnabledOnly" type="bool">
+  If true, return only security-enabled groups. If false, return all groups (default: false)
+</ParamField>
+
+## Get Member Objects
+
+Get all groups, administrative units, and directory roles that a directory object is a member of.
+
+```csharp
+var requestBody = new GetMemberObjectsPostRequestBody
+{
+    SecurityEnabledOnly = false
+};
+
+var memberObjects = await graphClient.DirectoryObjects["object-id"]
+    .GetMemberObjects
+    .PostAsync(requestBody);
+
+foreach (var objectId in memberObjects.Value)
+{
+    Console.WriteLine($"Member of: {objectId}");
+}
+```
+
+## Get Available Extension Properties
+
+Get available extension properties that can be used on directory objects.
+
+```csharp
+var requestBody = new GetAvailableExtensionPropertiesPostRequestBody
+{
+    IsSyncedFromOnPremises = false
+};
+
+var properties = await graphClient.DirectoryObjects
+    .GetAvailableExtensionProperties
+    .PostAsync(requestBody);
+
+foreach (var property in properties.Value)
+{
+    Console.WriteLine($"Extension: {property.Name}");
+}
+```
+
+## Validate Properties
+
+Validate that a display name or mail nickname complies with naming policies.
+
+```csharp
+var requestBody = new ValidatePropertiesPostRequestBody
+{
+    DisplayName = "Engineering Team",
+    MailNickname = "engineering",
+    OnBehalfOfUserId = "user-id"
+};
+
+await graphClient.DirectoryObjects.ValidateProperties.PostAsync(requestBody);
+// If validation fails, an error is thrown
+```
+
+## Restore Deleted Object
+
+Restore a recently deleted directory object from the deleted items container.
+
+```csharp
+var restored = await graphClient.DirectoryObjects["object-id"]
+    .Restore
+    .PostAsync();
+
+if (restored is User user)
+{
+    Console.WriteLine($"Restored user: {user.DisplayName}");
+}
+```
+
+## Common Use Cases
+
+### Find Object Type
+
+```csharp
+var obj = await graphClient.DirectoryObjects["object-id"].GetAsync();
+
+switch (obj)
+{
+    case User user:
+        Console.WriteLine($"User: {user.UserPrincipalName}");
+        break;
+    case Group group:
+        Console.WriteLine($"Group: {group.DisplayName}");
+        break;
+    case ServicePrincipal sp:
+        Console.WriteLine($"Service Principal: {sp.DisplayName}");
+        break;
+    case Device device:
+        Console.WriteLine($"Device: {device.DisplayName}");
+        break;
+    case Application app:
+        Console.WriteLine($"Application: {app.DisplayName}");
+        break;
+    default:
+        Console.WriteLine($"Unknown type: {obj.OdataType}");
+        break;
+}
+```
+
+### Batch Retrieve Multiple Objects
+
+```csharp
+var ids = new List<string> { /* large list of IDs */ };
+var batchSize = 1000; // Max allowed
+var allObjects = new List<DirectoryObject>();
+
+for (int i = 0; i < ids.Count; i += batchSize)
+{
+    var batch = ids.Skip(i).Take(batchSize).ToList();
+    
+    var requestBody = new GetByIdsPostRequestBody
+    {
+        Ids = batch
+    };
+    
+    var result = await graphClient.DirectoryObjects.GetByIds.PostAsync(requestBody);
+    allObjects.AddRange(result.Value);
+}
+```
+
+### Check Group Membership with Caching
+
+```csharp
+public async Task<bool> IsUserInGroup(string userId, string groupId)
+{
+    var requestBody = new CheckMemberGroupsPostRequestBody
+    {
+        GroupIds = new List<string> { groupId }
+    };
+    
+    var memberGroups = await graphClient.DirectoryObjects[userId]
+        .CheckMemberGroups
+        .PostAsync(requestBody);
+    
+    return memberGroups.Value.Contains(groupId);
+}
+```
+
+### Get All Group Memberships (Direct and Transitive)
+
+```csharp
+public async Task<List<string>> GetAllGroupMemberships(string objectId)
+{
+    var requestBody = new GetMemberGroupsPostRequestBody
+    {
+        SecurityEnabledOnly = false
+    };
+    
+    var memberGroups = await graphClient.DirectoryObjects[objectId]
+        .GetMemberGroups
+        .PostAsync(requestBody);
+    
+    return memberGroups.Value.ToList();
+}
+```
+
+## Supported Directory Object Types
+
+- **User** - User accounts
+- **Group** - Security and Microsoft 365 groups
+- **Device** - Registered devices
+- **ServicePrincipal** - Enterprise applications and service principals
+- **Application** - Application registrations
+- **DirectoryRole** - Azure AD roles
+- **AdministrativeUnit** - Administrative units
+- **Contact** - Organizational contacts
+
+## Error Handling
+
+```csharp
+using Microsoft.Graph.Models.ODataErrors;
+
+try
+{
+    var obj = await graphClient.DirectoryObjects["invalid-id"].GetAsync();
+}
+catch (ODataError error)
+{
+    if (error.Error.Code == "Request_ResourceNotFound")
+    {
+        Console.WriteLine("Directory object not found");
+    }
+    else
+    {
+        Console.WriteLine($"Error: {error.Error.Message}");
+    }
+}
+```
+
+## Performance Tips
+
+<AccordionGroup>
+  <Accordion title="Use GetByIds for Bulk Retrieval">
+    When retrieving multiple objects, use GetByIds instead of individual requests to reduce network overhead.
+  </Accordion>
+
+  <Accordion title="Cache Group Memberships">
+    Group membership checks are expensive. Cache results when possible, especially for frequently checked groups.
+  </Accordion>
+
+  <Accordion title="Use Transitive Membership">
+    GetMemberGroups returns both direct and nested group memberships in one call, avoiding multiple requests.
+  </Accordion>
+
+  <Accordion title="Filter by Type">
+    When using GetByIds, specify the Types parameter to reduce response size if you only need specific object types.
+  </Accordion>
+</AccordionGroup>
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Users API" href="/api-reference/users" icon="users">
+    User-specific operations
+  </Card>
+  <Card title="Groups API" href="/api-reference/groups" icon="users-rectangle">
+    Group-specific operations
+  </Card>
+  <Card title="Service Principals" href="/api-reference/service-principals" icon="cogs">
+    Service principal management
+  </Card>
+  <Card title="Applications" href="/api-reference/applications" icon="window-maximize">
+    Application registration management
+  </Card>
+</CardGroup>

@@ -1,0 +1,612 @@
+---
+title: Large File Upload
+description: Learn how to upload large files to OneDrive and SharePoint using resumable upload sessions
+---
+
+When uploading files larger than 4 MB to OneDrive or SharePoint, you must use an upload session. This guide covers resumable upload sessions for reliable large file uploads.
+
+## Why Use Upload Sessions?
+
+<Card title="For Files > 4 MB" icon="file">
+Files larger than 4 MB must use upload sessions. Simple PUT requests will fail.
+</Card>
+
+<Card title="Resumable Uploads" icon="rotate">
+Upload sessions support resuming interrupted uploads, perfect for large files or unreliable networks.
+</Card>
+
+<Card title="Progress Tracking" icon="chart-line">
+Monitor upload progress and provide feedback to users during long uploads.
+</Card>
+
+## Size Limits
+
+- **OneDrive Personal**: Up to 250 GB per file
+- **OneDrive for Business**: Up to 250 GB per file
+- **SharePoint**: Up to 250 GB per file (configurable by admin)
+
+## Getting Started
+
+```csharp
+using Microsoft.Graph;
+using Microsoft.Graph.Models;
+using Microsoft.Graph.Drives.Item.Items.Item.CreateUploadSession;
+using System.IO;
+
+var graphClient = new GraphServiceClient(authProvider);
+```
+
+## Basic Upload Session
+
+### Upload a Large File
+
+<Steps>
+  <Step title="Create upload session">
+    ```csharp
+    var filePath = "large-video.mp4";
+    var fileName = Path.GetFileName(filePath);
+
+    var uploadSession = await graphClient.Me.Drive.Root
+        .ItemWithPath(fileName)
+        .CreateUploadSession
+        .PostAsync(new CreateUploadSessionPostRequestBody
+        {
+            Item = new DriveItemUploadableProperties
+            {
+                AdditionalData = new Dictionary<string, object>
+                {
+                    { "@microsoft.graph.conflictBehavior", "rename" }
+                }
+            }
+        });
+    ```
+  </Step>
+
+  <Step title="Upload file in chunks">
+    ```csharp
+    using var fileStream = File.OpenRead(filePath);
+    var fileSize = fileStream.Length;
+
+    // Maximum chunk size is 320 KiB (320 * 1024 bytes)
+    const int maxChunkSize = 320 * 1024;
+    var buffer = new byte[maxChunkSize];
+    var bytesRead = 0;
+    long totalBytesRead = 0;
+
+    while ((bytesRead = await fileStream.ReadAsync(buffer, 0, maxChunkSize)) > 0)
+    {
+        var chunkData = new byte[bytesRead];
+        Array.Copy(buffer, chunkData, bytesRead);
+
+        using var chunkStream = new MemoryStream(chunkData);
+
+        // Create the upload request
+        var uploadRequest = new HttpRequestMessage(HttpMethod.Put, uploadSession.UploadUrl);
+        uploadRequest.Content = new StreamContent(chunkStream);
+        
+        // Set Content-Range header
+        var contentRange = $"bytes {totalBytesRead}-{totalBytesRead + bytesRead - 1}/{fileSize}";
+        uploadRequest.Content.Headers.Add("Content-Range", contentRange);
+        uploadRequest.Content.Headers.ContentLength = bytesRead;
+
+        var httpClient = new HttpClient();
+        var response = await httpClient.SendAsync(uploadRequest);
+
+        totalBytesRead += bytesRead;
+
+        Console.WriteLine($"Uploaded {totalBytesRead} / {fileSize} bytes");
+    }
+    ```
+  </Step>
+
+  <Step title="Complete upload">
+    ```csharp
+    Console.WriteLine("Upload completed successfully!");
+    ```
+  </Step>
+</Steps>
+
+## Using Upload Provider (Recommended)
+
+The SDK provides a `LargeFileUploadTask` helper for easier upload management:
+
+### Upload with Progress Tracking
+
+```csharp
+using Microsoft.Graph;
+using Microsoft.Graph.Models;
+
+public async Task<DriveItem> UploadLargeFileAsync(
+    string localFilePath,
+    string remoteFolderPath,
+    IProgress<long> progress = null)
+{
+    var fileName = Path.GetFileName(localFilePath);
+    using var fileStream = File.OpenRead(localFilePath);
+    var fileSize = fileStream.Length;
+
+    // Create upload session
+    var uploadSession = await _graphClient.Me.Drive.Root
+        .ItemWithPath($"{remoteFolderPath}/{fileName}")
+        .CreateUploadSession
+        .PostAsync(new CreateUploadSessionPostRequestBody
+        {
+            Item = new DriveItemUploadableProperties
+            {
+                AdditionalData = new Dictionary<string, object>
+                {
+                    { "@microsoft.graph.conflictBehavior", "replace" }
+                }
+            }
+        });
+
+    // Create upload task
+    var maxChunkSize = 320 * 1024; // 320 KB
+    var uploadTask = new LargeFileUploadTask<DriveItem>(
+        uploadSession,
+        fileStream,
+        maxChunkSize
+    );
+
+    // Upload with progress tracking
+    var totalLength = fileStream.Length;
+    IProgress<long> progressReport = new Progress<long>(bytesUploaded =>
+    {
+        var percentComplete = (int)((bytesUploaded / (double)totalLength) * 100);
+        Console.WriteLine($"Uploaded {bytesUploaded:N0} of {totalLength:N0} bytes ({percentComplete}%)");
+        progress?.Report(bytesUploaded);
+    });
+
+    try
+    {
+        var uploadResult = await uploadTask.UploadAsync(progressReport);
+
+        if (uploadResult.UploadSucceeded)
+        {
+            Console.WriteLine($"Upload complete! Item ID: {uploadResult.ItemResponse.Id}");
+            return uploadResult.ItemResponse;
+        }
+        else
+        {
+            throw new Exception("Upload failed");
+        }
+    }
+    catch (ServiceException ex)
+    {
+        Console.WriteLine($"Error uploading file: {ex.Message}");
+        throw;
+    }
+}
+```
+
+## Upload to Specific Location
+
+### Upload to Folder by ID
+
+```csharp
+var uploadSession = await graphClient.Me.Drive.Items["folder-id"]
+    .ItemWithPath(fileName)
+    .CreateUploadSession
+    .PostAsync(new CreateUploadSessionPostRequestBody
+    {
+        Item = new DriveItemUploadableProperties
+        {
+            AdditionalData = new Dictionary<string, object>
+            {
+                { "@microsoft.graph.conflictBehavior", "rename" }
+            }
+        }
+    });
+```
+
+### Upload to SharePoint
+
+```csharp
+var uploadSession = await graphClient.Sites["site-id"]
+    .Drives["drive-id"]
+    .Root
+    .ItemWithPath($"/Documents/{fileName}")
+    .CreateUploadSession
+    .PostAsync(new CreateUploadSessionPostRequestBody
+    {
+        Item = new DriveItemUploadableProperties
+        {
+            AdditionalData = new Dictionary<string, object>
+            {
+                { "@microsoft.graph.conflictBehavior", "fail" }
+            }
+        }
+    });
+```
+
+## Conflict Behavior
+
+Specify what happens if a file with the same name exists:
+
+<CodeGroup>
+```csharp Rename (Default)
+var uploadSessionBody = new CreateUploadSessionPostRequestBody
+{
+    Item = new DriveItemUploadableProperties
+    {
+        AdditionalData = new Dictionary<string, object>
+        {
+            { "@microsoft.graph.conflictBehavior", "rename" }
+        }
+    }
+};
+```
+
+```csharp Replace
+var uploadSessionBody = new CreateUploadSessionPostRequestBody
+{
+    Item = new DriveItemUploadableProperties
+    {
+        AdditionalData = new Dictionary<string, object>
+        {
+            { "@microsoft.graph.conflictBehavior", "replace" }
+        }
+    }
+};
+```
+
+```csharp Fail
+var uploadSessionBody = new CreateUploadSessionPostRequestBody
+{
+    Item = new DriveItemUploadableProperties
+    {
+        AdditionalData = new Dictionary<string, object>
+        {
+            { "@microsoft.graph.conflictBehavior", "fail" }
+        }
+    }
+};
+```
+</CodeGroup>
+
+## Resumable Uploads
+
+### Save Upload Session
+
+```csharp
+public class UploadState
+{
+    public string UploadUrl { get; set; }
+    public long BytesUploaded { get; set; }
+    public string LocalFilePath { get; set; }
+    public DateTime ExpirationDateTime { get; set; }
+}
+
+public async Task<string> StartResumableUploadAsync(string filePath)
+{
+    var fileName = Path.GetFileName(filePath);
+    
+    var uploadSession = await graphClient.Me.Drive.Root
+        .ItemWithPath(fileName)
+        .CreateUploadSession
+        .PostAsync(new CreateUploadSessionPostRequestBody());
+
+    // Save upload state
+    var state = new UploadState
+    {
+        UploadUrl = uploadSession.UploadUrl,
+        BytesUploaded = 0,
+        LocalFilePath = filePath,
+        ExpirationDateTime = uploadSession.ExpirationDateTime.Value
+    };
+
+    var stateJson = JsonSerializer.Serialize(state);
+    await File.WriteAllTextAsync("upload-state.json", stateJson);
+
+    return uploadSession.UploadUrl;
+}
+```
+
+### Resume Upload
+
+```csharp
+public async Task<DriveItem> ResumeUploadAsync(string stateFilePath)
+{
+    // Load saved state
+    var stateJson = await File.ReadAllTextAsync(stateFilePath);
+    var state = JsonSerializer.Deserialize<UploadState>(stateJson);
+
+    // Check if session is still valid
+    if (state.ExpirationDateTime < DateTime.UtcNow)
+    {
+        throw new Exception("Upload session expired. Please start a new upload.");
+    }
+
+    // Get upload status
+    var httpClient = new HttpClient();
+    var statusRequest = new HttpRequestMessage(HttpMethod.Get, state.UploadUrl);
+    var statusResponse = await httpClient.SendAsync(statusRequest);
+    
+    // Parse next expected byte range
+    // Continue upload from where it left off...
+    
+    using var fileStream = File.OpenRead(state.LocalFilePath);
+    fileStream.Seek(state.BytesUploaded, SeekOrigin.Begin);
+
+    // Continue upload...
+}
+```
+
+## Cancel Upload Session
+
+```csharp
+public async Task CancelUploadAsync(string uploadUrl)
+{
+    var httpClient = new HttpClient();
+    var cancelRequest = new HttpRequestMessage(HttpMethod.Delete, uploadUrl);
+    await httpClient.SendAsync(cancelRequest);
+    
+    Console.WriteLine("Upload session cancelled");
+}
+```
+
+## Complete Example
+
+```csharp
+using Microsoft.Graph;
+using Microsoft.Graph.Models;
+using System.Text.Json;
+
+public class LargeFileUploadManager
+{
+    private readonly GraphServiceClient _graphClient;
+    private const int ChunkSize = 320 * 1024; // 320 KB
+
+    public LargeFileUploadManager(GraphServiceClient graphClient)
+    {
+        _graphClient = graphClient;
+    }
+
+    public async Task<DriveItem> UploadFileWithRetryAsync(
+        string localFilePath,
+        string destinationPath,
+        int maxRetries = 3,
+        IProgress<UploadProgress> progress = null)
+    {
+        var fileName = Path.GetFileName(localFilePath);
+        var fullPath = $"{destinationPath}/{fileName}".Replace("//", "/");
+        
+        Exception lastException = null;
+
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            try
+            {
+                Console.WriteLine($"Upload attempt {attempt} of {maxRetries}");
+
+                // Create upload session
+                var uploadSession = await _graphClient.Me.Drive.Root
+                    .ItemWithPath(fullPath)
+                    .CreateUploadSession
+                    .PostAsync(new CreateUploadSessionPostRequestBody
+                    {
+                        Item = new DriveItemUploadableProperties
+                        {
+                            AdditionalData = new Dictionary<string, object>
+                            {
+                                { "@microsoft.graph.conflictBehavior", "replace" }
+                            }
+                        }
+                    });
+
+                // Upload file
+                using var fileStream = File.OpenRead(localFilePath);
+                var uploadTask = new LargeFileUploadTask<DriveItem>(
+                    uploadSession,
+                    fileStream,
+                    ChunkSize
+                );
+
+                var progressReport = new Progress<long>(bytesUploaded =>
+                {
+                    var percentComplete = (int)((bytesUploaded / (double)fileStream.Length) * 100);
+                    progress?.Report(new UploadProgress
+                    {
+                        BytesUploaded = bytesUploaded,
+                        TotalBytes = fileStream.Length,
+                        PercentComplete = percentComplete,
+                        FileName = fileName
+                    });
+                });
+
+                var uploadResult = await uploadTask.UploadAsync(progressReport);
+
+                if (uploadResult.UploadSucceeded)
+                {
+                    Console.WriteLine($"✓ Upload successful: {fileName}");
+                    return uploadResult.ItemResponse;
+                }
+            }
+            catch (Exception ex)
+            {
+                lastException = ex;
+                Console.WriteLine($"✗ Attempt {attempt} failed: {ex.Message}");
+
+                if (attempt < maxRetries)
+                {
+                    var delay = TimeSpan.FromSeconds(Math.Pow(2, attempt));
+                    Console.WriteLine($"Retrying in {delay.TotalSeconds} seconds...");
+                    await Task.Delay(delay);
+                }
+            }
+        }
+
+        throw new Exception(
+            $"Failed to upload file after {maxRetries} attempts",
+            lastException
+        );
+    }
+
+    public async Task<List<DriveItem>> UploadMultipleFilesAsync(
+        List<string> filePaths,
+        string destinationPath,
+        int maxConcurrent = 3,
+        IProgress<BatchUploadProgress> progress = null)
+    {
+        var uploadedItems = new List<DriveItem>();
+        var totalFiles = filePaths.Count;
+        var completedFiles = 0;
+
+        var semaphore = new SemaphoreSlim(maxConcurrent);
+        var tasks = filePaths.Select(async filePath =>
+        {
+            await semaphore.WaitAsync();
+            try
+            {
+                var fileProgress = new Progress<UploadProgress>(p =>
+                {
+                    progress?.Report(new BatchUploadProgress
+                    {
+                        CurrentFile = p.FileName,
+                        CompletedFiles = completedFiles,
+                        TotalFiles = totalFiles,
+                        CurrentFileProgress = p.PercentComplete
+                    });
+                });
+
+                var item = await UploadFileWithRetryAsync(
+                    filePath,
+                    destinationPath,
+                    progress: fileProgress
+                );
+
+                Interlocked.Increment(ref completedFiles);
+                return item;
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+        });
+
+        var results = await Task.WhenAll(tasks);
+        return results.ToList();
+    }
+
+    public async Task<DriveItem> UploadWithChecksumAsync(
+        string localFilePath,
+        string destinationPath)
+    {
+        // Calculate file hash for verification
+        using var md5 = System.Security.Cryptography.MD5.Create();
+        using var stream = File.OpenRead(localFilePath);
+        var hash = md5.ComputeHash(stream);
+        var hashString = Convert.ToBase64String(hash);
+
+        Console.WriteLine($"File hash: {hashString}");
+
+        // Upload file
+        var uploadedItem = await UploadFileWithRetryAsync(
+            localFilePath,
+            destinationPath
+        );
+
+        // Verify upload by checking file hash
+        var uploadedFile = await _graphClient.Me.Drive.Items[uploadedItem.Id]
+            .GetAsync(config =>
+            {
+                config.QueryParameters.Select = new[] { "file" };
+            });
+
+        if (uploadedFile.File?.Hashes?.QuickXorHash != null)
+        {
+            Console.WriteLine("Upload verified successfully");
+        }
+
+        return uploadedItem;
+    }
+}
+
+public class UploadProgress
+{
+    public long BytesUploaded { get; set; }
+    public long TotalBytes { get; set; }
+    public int PercentComplete { get; set; }
+    public string FileName { get; set; }
+}
+
+public class BatchUploadProgress
+{
+    public string CurrentFile { get; set; }
+    public int CompletedFiles { get; set; }
+    public int TotalFiles { get; set; }
+    public int CurrentFileProgress { get; set; }
+}
+```
+
+## Usage Examples
+
+### Simple Upload with Progress
+
+```csharp
+var manager = new LargeFileUploadManager(graphClient);
+
+var progress = new Progress<UploadProgress>(p =>
+{
+    Console.WriteLine($"Uploading {p.FileName}: {p.PercentComplete}%");
+});
+
+var uploadedFile = await manager.UploadFileWithRetryAsync(
+    "large-video.mp4",
+    "/Videos",
+    progress: progress
+);
+```
+
+### Batch Upload
+
+```csharp
+var filesToUpload = new List<string>
+{
+    "video1.mp4",
+    "video2.mp4",
+    "video3.mp4"
+};
+
+var batchProgress = new Progress<BatchUploadProgress>(p =>
+{
+    Console.WriteLine($"Uploading {p.CurrentFile}");
+    Console.WriteLine($"Progress: {p.CompletedFiles}/{p.TotalFiles} files");
+    Console.WriteLine($"Current file: {p.CurrentFileProgress}%");
+});
+
+var uploadedItems = await manager.UploadMultipleFilesAsync(
+    filesToUpload,
+    "/Videos",
+    maxConcurrent: 2,
+    progress: batchProgress
+);
+```
+
+## Best Practices
+
+<Card title="Choose Appropriate Chunk Size" icon="puzzle-piece">
+Use 320 KB chunks for most scenarios. Larger chunks may fail on slower connections.
+</Card>
+
+<Card title="Implement Retry Logic" icon="rotate">
+Network interruptions are common with large files. Always implement retry logic with exponential backoff.
+</Card>
+
+<Card title="Track Upload State" icon="bookmark">
+Save upload session URLs and progress to enable resuming after interruptions.
+</Card>
+
+<Card title="Validate Uploads" icon="check">
+Verify file integrity after upload using file hashes when possible.
+</Card>
+
+<Card title="Monitor Session Expiration" icon="clock">
+Upload sessions expire after a period of inactivity. Complete uploads promptly or save session state to resume.
+</Card>
+
+## Next Steps
+
+- [Working with Files](/guides/working-with-files) - Basic file operations
+- [Batch Requests](/guides/batch-requests) - Optimize API calls
+- [API Reference](/api-reference/drive) - Complete Drive API reference

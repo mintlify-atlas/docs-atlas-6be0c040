@@ -1,0 +1,664 @@
+---
+title: GraphServiceClient
+description: Learn how to initialize, configure, and use the GraphServiceClient for Microsoft Graph API requests
+icon: circle-nodes
+---
+
+The `GraphServiceClient` is the main entry point for all Microsoft Graph SDK operations. It manages authentication, HTTP communication, and provides access to all API endpoints through strongly-typed request builders.
+
+## Overview
+
+The `GraphServiceClient` class is defined in the `Microsoft.Graph` namespace and inherits from `BaseGraphServiceClient`. It implements `IBaseClient` and `IDisposable`, making it suitable for dependency injection and proper resource management.
+
+```csharp GraphServiceClient.cs:21-22
+using Microsoft.Graph;
+
+public class GraphServiceClient : BaseGraphServiceClient, IBaseClient, IDisposable
+```
+
+## Basic Initialization
+
+### Using TokenCredential (Recommended)
+
+The simplest way to create a client using Azure.Identity credentials:
+
+```csharp
+using Azure.Identity;
+using Microsoft.Graph;
+
+string[] scopes = { "User.Read" };
+var credential = new InteractiveBrowserCredential(new InteractiveBrowserCredentialOptions
+{
+    ClientId = "YOUR_CLIENT_ID"
+});
+
+var graphClient = new GraphServiceClient(credential, scopes);
+```
+
+**Constructor signature** from GraphServiceClient.cs:46-52:
+
+```csharp
+public GraphServiceClient(
+    TokenCredential tokenCredential,
+    IEnumerable<string> scopes = null,
+    string baseUrl = null
+)
+```
+
+<ParamField path="tokenCredential" type="TokenCredential" required>
+  Azure.Identity `TokenCredential` for authentication (e.g., `InteractiveBrowserCredential`, `ClientSecretCredential`)
+</ParamField>
+
+<ParamField path="scopes" type="IEnumerable<string>" default="null">
+  Permission scopes required for your application (e.g., `["User.Read", "Mail.Send"]`)
+</ParamField>
+
+<ParamField path="baseUrl" type="string" default="https://graph.microsoft.com/v1.0">
+  Base URL for the Microsoft Graph API. Use `https://graph.microsoft.com/beta` for beta endpoints
+</ParamField>
+
+### Using TokenCredential with Custom HttpClient
+
+Provide your own configured `HttpClient` for custom middleware, proxies, or timeouts:
+
+```csharp
+using Azure.Identity;
+using Microsoft.Graph;
+using System.Net.Http;
+
+var httpClient = new HttpClient
+{
+    Timeout = TimeSpan.FromSeconds(30)
+};
+
+string[] scopes = { "User.Read" };
+var credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+
+var graphClient = new GraphServiceClient(
+    httpClient,
+    credential,
+    scopes
+);
+```
+
+**Constructor signature** from GraphServiceClient.cs:61-67:
+
+```csharp
+public GraphServiceClient(
+    HttpClient httpClient,
+    TokenCredential tokenCredential,
+    IEnumerable<string> scopes = null,
+    string baseUrl = null
+)
+```
+
+<Warning>
+  When providing a custom `HttpClient`, you're responsible for its lifecycle. Consider using `IHttpClientFactory` in ASP.NET Core applications.
+</Warning>
+
+### Using IAuthenticationProvider
+
+For custom authentication implementations:
+
+```csharp
+using Microsoft.Graph;
+using Microsoft.Kiota.Abstractions.Authentication;
+
+public class CustomAuthProvider : IAuthenticationProvider
+{
+    public Task AuthenticateRequestAsync(
+        RequestInformation request,
+        Dictionary<string, object> additionalAuthenticationContext = null,
+        CancellationToken cancellationToken = default)
+    {
+        // Add authentication header
+        request.Headers.Add("Authorization", $"Bearer {GetToken()}");
+        return Task.CompletedTask;
+    }
+    
+    private string GetToken() => // Your token acquisition logic
+}
+
+var authProvider = new CustomAuthProvider();
+var graphClient = new GraphServiceClient(authProvider);
+```
+
+**Constructor signature** from GraphServiceClient.cs:75-79:
+
+```csharp
+public GraphServiceClient(
+    IAuthenticationProvider authenticationProvider,
+    string baseUrl = null
+)
+```
+
+### Using IRequestAdapter
+
+For advanced scenarios with full control over request processing:
+
+```csharp
+using Microsoft.Graph;
+using Microsoft.Kiota.Abstractions;
+
+var requestAdapter = new CustomRequestAdapter(authProvider);
+var graphClient = new GraphServiceClient(requestAdapter);
+```
+
+**Constructor signature** from GraphServiceClient.cs:33-38:
+
+```csharp
+public GraphServiceClient(
+    IRequestAdapter requestAdapter,
+    string baseUrl = null
+)
+```
+
+## Accessing API Endpoints
+
+The `GraphServiceClient` provides properties for accessing all Microsoft Graph endpoints through request builders:
+
+### User Context (Me)
+
+```csharp
+// Get current user
+var me = await graphClient.Me.GetAsync();
+Console.WriteLine($"Display Name: {me.DisplayName}");
+
+// Get user's messages
+var messages = await graphClient.Me.Messages.GetAsync();
+
+// Get user's calendar
+var calendar = await graphClient.Me.Calendar.GetAsync();
+
+// Get user's manager
+var manager = await graphClient.Me.Manager.GetAsync();
+```
+
+### Users Collection
+
+```csharp
+// List all users
+var users = await graphClient.Users.GetAsync();
+
+// Get specific user by ID
+var user = await graphClient.Users["user-id"].GetAsync();
+
+// Get user by user principal name
+var user = await graphClient.Users["user@contoso.com"].GetAsync();
+```
+
+### Groups Collection
+
+```csharp
+// List all groups
+var groups = await graphClient.Groups.GetAsync();
+
+// Get specific group
+var group = await graphClient.Groups["group-id"].GetAsync();
+
+// Get group members
+var members = await graphClient.Groups["group-id"].Members.GetAsync();
+```
+
+### Other Common Endpoints
+
+```csharp
+// Sites
+var sites = await graphClient.Sites.GetAsync();
+var site = await graphClient.Sites["site-id"].GetAsync();
+
+// Teams
+var teams = await graphClient.Teams.GetAsync();
+var team = await graphClient.Teams["team-id"].GetAsync();
+
+// Applications
+var apps = await graphClient.Applications.GetAsync();
+
+// Drives (OneDrive)
+var drives = await graphClient.Me.Drives.GetAsync();
+var drive = await graphClient.Me.Drive.GetAsync();
+
+// Directory Objects
+var directoryObjects = await graphClient.DirectoryObjects.GetAsync();
+```
+
+## Configuration Options
+
+### Changing Base URL
+
+Access beta API endpoints:
+
+```csharp
+var credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+string[] scopes = { "https://graph.microsoft.com/.default" };
+
+var graphClient = new GraphServiceClient(
+    credential,
+    scopes,
+    "https://graph.microsoft.com/beta"
+);
+
+// Now calls beta endpoint
+var user = await graphClient.Me.GetAsync();
+```
+
+<Note>
+  Beta endpoints may have different schemas and are subject to change. Use v1.0 for production applications.
+</Note>
+
+### Using National Clouds
+
+Connect to sovereign clouds:
+
+```csharp
+// China
+var graphClient = new GraphServiceClient(
+    credential,
+    scopes,
+    "https://microsoftgraph.chinacloudapi.cn/v1.0"
+);
+
+// US Government
+var graphClient = new GraphServiceClient(
+    credential,
+    scopes,
+    "https://graph.microsoft.us/v1.0"
+);
+
+// Germany
+var graphClient = new GraphServiceClient(
+    credential,
+    scopes,
+    "https://graph.microsoft.de/v1.0"
+);
+```
+
+## Batch Requests
+
+The client provides access to batch request functionality:
+
+```csharp
+using Microsoft.Graph;
+
+var graphClient = new GraphServiceClient(credential, scopes);
+
+// Access batch request builder
+var batchBuilder = graphClient.Batch;
+
+// Batch requests allow multiple operations in a single HTTP call
+// See batch documentation for detailed examples
+```
+
+Property definition from GraphServiceClient.cs:104-110:
+
+```csharp
+public BatchRequestBuilder Batch
+{
+    get
+    {
+        return new CustomBatchRequestBuilder(this.RequestAdapter);
+    }
+}
+```
+
+## Advanced Scenarios
+
+### Custom HTTP Client with Middleware
+
+```csharp
+using System.Net.Http;
+using Microsoft.Graph;
+using Azure.Identity;
+
+var handler = new HttpClientHandler
+{
+    Proxy = new WebProxy("http://proxy.company.com:8080"),
+    UseProxy = true
+};
+
+var httpClient = new HttpClient(handler)
+{
+    Timeout = TimeSpan.FromSeconds(60)
+};
+
+var credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+string[] scopes = { "https://graph.microsoft.com/.default" };
+
+var graphClient = new GraphServiceClient(httpClient, credential, scopes);
+```
+
+### Accessing Request Adapter
+
+The underlying request adapter for advanced customization:
+
+```csharp
+var graphClient = new GraphServiceClient(credential, scopes);
+
+// Access the request adapter
+var requestAdapter = graphClient.RequestAdapter;
+
+// Modify base URL dynamically
+requestAdapter.BaseUrl = "https://graph.microsoft.com/beta";
+```
+
+Property definition from GraphServiceClient.cs:99:
+
+```csharp
+public new IRequestAdapter RequestAdapter { get; set; }
+```
+
+### Dependency Injection in ASP.NET Core
+
+```csharp Program.cs
+using Azure.Identity;
+using Microsoft.Graph;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Register as singleton
+builder.Services.AddSingleton<GraphServiceClient>(sp =>
+{
+    var configuration = sp.GetRequiredService<IConfiguration>();
+    
+    var credential = new ClientSecretCredential(
+        configuration["AzureAd:TenantId"],
+        configuration["AzureAd:ClientId"],
+        configuration["AzureAd:ClientSecret"]
+    );
+    
+    string[] scopes = { "https://graph.microsoft.com/.default" };
+    return new GraphServiceClient(credential, scopes);
+});
+
+var app = builder.Build();
+```
+
+```csharp Controller.cs
+public class UsersController : ControllerBase
+{
+    private readonly GraphServiceClient _graphClient;
+    
+    public UsersController(GraphServiceClient graphClient)
+    {
+        _graphClient = graphClient;
+    }
+    
+    [HttpGet("me")]
+    public async Task<IActionResult> GetMe()
+    {
+        var user = await _graphClient.Me.GetAsync();
+        return Ok(user);
+    }
+}
+```
+
+<Tip>
+  `GraphServiceClient` is thread-safe and designed to be long-lived. Register it as a singleton in DI containers.
+</Tip>
+
+### Disposing the Client
+
+The client implements `IDisposable` for proper resource cleanup:
+
+```csharp
+using (var graphClient = new GraphServiceClient(credential, scopes))
+{
+    var user = await graphClient.Me.GetAsync();
+    // Client automatically disposed
+}
+
+// Or manually
+var graphClient = new GraphServiceClient(credential, scopes);
+try
+{
+    var user = await graphClient.Me.GetAsync();
+}
+finally
+{
+    graphClient.Dispose();
+}
+```
+
+Implementation from GraphServiceClient.cs:115-121:
+
+```csharp
+public void Dispose()
+{
+    if (this.RequestAdapter is IDisposable disposable)
+    {
+        disposable.Dispose();
+    }
+}
+```
+
+<Warning>
+  Only dispose the client when you're done with it for the lifetime of your application. Don't dispose between requests.
+</Warning>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Reuse client instances">
+    Create one `GraphServiceClient` instance and reuse it throughout your application:
+    
+    ```csharp
+    // Good - reuse instance
+    private static GraphServiceClient _graphClient = 
+        new GraphServiceClient(credential, scopes);
+    
+    public async Task Method1()
+    {
+        var user = await _graphClient.Me.GetAsync();
+    }
+    
+    public async Task Method2()
+    {
+        var messages = await _graphClient.Me.Messages.GetAsync();
+    }
+    ```
+    
+    ```csharp
+    // Bad - creates new instance every call
+    public async Task Method1()
+    {
+        var client = new GraphServiceClient(credential, scopes);
+        var user = await client.Me.GetAsync();
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Use dependency injection">
+    Register the client in your DI container as a singleton:
+    
+    ```csharp
+    services.AddSingleton<GraphServiceClient>(sp =>
+        new GraphServiceClient(credential, scopes));
+    ```
+    
+    This ensures:
+    - Single instance across application
+    - Proper lifecycle management
+    - Easy testing with mocks
+    - Consistent configuration
+  </Accordion>
+  
+  <Accordion title="Handle authentication errors">
+    Wrap client operations in try-catch blocks:
+    
+    ```csharp
+    try
+    {
+        var user = await graphClient.Me.GetAsync();
+    }
+    catch (ODataError ex) when (ex.ResponseStatusCode == 401)
+    {
+        // Handle authentication failure
+        Console.WriteLine("Authentication failed. Token may be expired.");
+    }
+    catch (ODataError ex)
+    {
+        Console.WriteLine($"Graph API error: {ex.Error?.Code}");
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Configure timeouts appropriately">
+    Set reasonable timeouts for your scenarios:
+    
+    ```csharp
+    // For long-running operations
+    var httpClient = new HttpClient
+    {
+        Timeout = TimeSpan.FromMinutes(5)
+    };
+    
+    var graphClient = new GraphServiceClient(
+        httpClient,
+        credential,
+        scopes
+    );
+    ```
+  </Accordion>
+  
+  <Accordion title="Use specific scopes">
+    Request only the permissions you need:
+    
+    ```csharp
+    // Good - specific permissions
+    string[] scopes = { "User.Read", "Mail.Send" };
+    
+    // Avoid - overly broad
+    string[] scopes = { "https://graph.microsoft.com/.default" };
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Common Patterns
+
+### Factory Pattern
+
+```csharp
+public interface IGraphClientFactory
+{
+    GraphServiceClient CreateClient();
+}
+
+public class GraphClientFactory : IGraphClientFactory
+{
+    private readonly IConfiguration _configuration;
+    
+    public GraphClientFactory(IConfiguration configuration)
+    {
+        _configuration = configuration;
+    }
+    
+    public GraphServiceClient CreateClient()
+    {
+        var credential = new ClientSecretCredential(
+            _configuration["AzureAd:TenantId"],
+            _configuration["AzureAd:ClientId"],
+            _configuration["AzureAd:ClientSecret"]
+        );
+        
+        string[] scopes = { "https://graph.microsoft.com/.default" };
+        return new GraphServiceClient(credential, scopes);
+    }
+}
+```
+
+### Multi-Tenant Pattern
+
+```csharp
+public class MultiTenantGraphService
+{
+    private readonly ConcurrentDictionary<string, GraphServiceClient> _clients = new();
+    
+    public GraphServiceClient GetClientForTenant(string tenantId)
+    {
+        return _clients.GetOrAdd(tenantId, tid =>
+        {
+            var credential = new ClientSecretCredential(
+                tid,
+                clientId,
+                clientSecret
+            );
+            
+            string[] scopes = { "https://graph.microsoft.com/.default" };
+            return new GraphServiceClient(credential, scopes);
+        });
+    }
+}
+```
+
+## Troubleshooting
+
+### Client Not Initialized
+
+```csharp
+// Error: NullReferenceException
+// Cause: Client is null
+
+GraphServiceClient graphClient = null;
+var user = await graphClient.Me.GetAsync(); // Throws!
+
+// Solution: Always initialize before use
+var graphClient = new GraphServiceClient(credential, scopes);
+```
+
+### Authentication Failures
+
+```csharp
+// Error: 401 Unauthorized
+// Cause: Invalid credentials or expired token
+
+try
+{
+    var user = await graphClient.Me.GetAsync();
+}
+catch (ODataError ex) when (ex.ResponseStatusCode == 401)
+{
+    // Token may be expired or invalid
+    // TokenCredential implementations handle refresh automatically
+    // If this fails, check credential configuration
+}
+```
+
+### Base URL Issues
+
+```csharp
+// Error: 404 Not Found
+// Cause: Wrong base URL or endpoint not available in v1.0
+
+// Solution: Check if endpoint is beta-only
+var graphClient = new GraphServiceClient(
+    credential,
+    scopes,
+    "https://graph.microsoft.com/beta" // Use beta for preview features
+);
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Request Builders" icon="wrench" href="/core-concepts/request-builders">
+    Learn how to navigate the API with request builders
+  </Card>
+  
+  <Card title="Query Parameters" icon="filter" href="/core-concepts/query-parameters">
+    Customize requests with query parameters
+  </Card>
+  
+  <Card title="Error Handling" icon="triangle-exclamation" href="/core-concepts/error-handling">
+    Handle errors and exceptions properly
+  </Card>
+  
+  <Card title="Collections" icon="layer-group" href="/core-concepts/collections">
+    Work with collections and pagination
+  </Card>
+</CardGroup>
+
+## Additional Resources
+
+- [GraphServiceClient Source Code](https://github.com/microsoftgraph/msgraph-sdk-dotnet/blob/dev/src/Microsoft.Graph/GraphServiceClient.cs)
+- [Microsoft Graph API Reference](https://learn.microsoft.com/graph/api/overview)
+- [Dependency Injection in .NET](https://learn.microsoft.com/dotnet/core/extensions/dependency-injection)

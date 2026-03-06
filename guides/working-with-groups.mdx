@@ -1,0 +1,502 @@
+---
+title: Working with Groups
+description: Learn how to manage Microsoft 365 groups, security groups, and distribution groups using the .NET SDK
+---
+
+This guide covers operations for working with groups in Microsoft Graph, including creating groups, managing members, and working with group resources.
+
+## Group Types
+
+Microsoft Graph supports several group types:
+
+- **Microsoft 365 Groups** - Collaborative groups with shared resources
+- **Security Groups** - Used for access control
+- **Distribution Groups** - Email distribution lists
+- **Mail-Enabled Security Groups** - Combined email and security features
+
+## Getting Started
+
+```csharp
+using Microsoft.Graph;
+using Microsoft.Graph.Models;
+
+var graphClient = new GraphServiceClient(authProvider);
+```
+
+## Listing Groups
+
+### Get All Groups
+
+```csharp
+var groups = await graphClient.Groups
+    .GetAsync();
+
+foreach (var group in groups.Value)
+{
+    Console.WriteLine($"{group.DisplayName} - {group.GroupTypes}");
+}
+```
+
+### Filter Groups
+
+<CodeGroup>
+```csharp Microsoft 365 Groups
+var m365Groups = await graphClient.Groups
+    .GetAsync(requestConfiguration =>
+    {
+        requestConfiguration.QueryParameters.Filter = 
+            "groupTypes/any(c:c eq 'Unified')";
+    });
+```
+
+```csharp Security Groups
+var securityGroups = await graphClient.Groups
+    .GetAsync(requestConfiguration =>
+    {
+        requestConfiguration.QueryParameters.Filter = 
+            "securityEnabled eq true and mailEnabled eq false";
+    });
+```
+
+```csharp By Display Name
+var groups = await graphClient.Groups
+    .GetAsync(requestConfiguration =>
+    {
+        requestConfiguration.QueryParameters.Filter = 
+            "startswith(displayName, 'Sales')";
+    });
+```
+</CodeGroup>
+
+### Select Specific Properties
+
+```csharp
+var groups = await graphClient.Groups
+    .GetAsync(requestConfiguration =>
+    {
+        requestConfiguration.QueryParameters.Select = new[] 
+        { 
+            "id",
+            "displayName", 
+            "mail",
+            "groupTypes",
+            "membershipRule"
+        };
+    });
+```
+
+## Creating Groups
+
+### Create a Microsoft 365 Group
+
+<Steps>
+  <Step title="Define group properties">
+    ```csharp
+    var newGroup = new Group
+    {
+        DisplayName = "Marketing Team",
+        Description = "Marketing department collaboration group",
+        MailNickname = "marketing-team",
+        MailEnabled = true,
+        SecurityEnabled = false,
+        GroupTypes = new List<string> { "Unified" },
+        Visibility = "Private"
+    };
+    ```
+  </Step>
+
+  <Step title="Create the group">
+    ```csharp
+    try
+    {
+        var createdGroup = await graphClient.Groups
+            .PostAsync(newGroup);
+        
+        Console.WriteLine($"Created group: {createdGroup.Id}");
+        Console.WriteLine($"Email: {createdGroup.Mail}");
+    }
+    catch (ODataError odataError)
+    {
+        Console.WriteLine($"Error: {odataError.Error.Message}");
+    }
+    ```
+  </Step>
+</Steps>
+
+### Create a Security Group
+
+```csharp
+var securityGroup = new Group
+{
+    DisplayName = "IT Administrators",
+    Description = "IT admin security group",
+    MailNickname = "it-admins",
+    MailEnabled = false,
+    SecurityEnabled = true,
+    GroupTypes = new List<string>()
+};
+
+var createdGroup = await graphClient.Groups
+    .PostAsync(securityGroup);
+```
+
+### Create a Dynamic Group
+
+```csharp
+var dynamicGroup = new Group
+{
+    DisplayName = "All Engineers",
+    Description = "All users in Engineering department",
+    MailNickname = "all-engineers",
+    MailEnabled = true,
+    SecurityEnabled = true,
+    GroupTypes = new List<string> { "DynamicMembership" },
+    MembershipRule = "(user.department -eq \"Engineering\")",
+    MembershipRuleProcessingState = "On"
+};
+
+var createdGroup = await graphClient.Groups
+    .PostAsync(dynamicGroup);
+```
+
+## Managing Group Members
+
+### Add Members
+
+```csharp
+// Create reference to user
+var userReference = new ReferenceCreate
+{
+    OdataId = $"https://graph.microsoft.com/v1.0/users/{userId}"
+};
+
+await graphClient.Groups["group-id"].Members.Ref
+    .PostAsync(userReference);
+```
+
+### Add Multiple Members at Creation
+
+```csharp
+var newGroup = new Group
+{
+    DisplayName = "Project Alpha",
+    MailNickname = "project-alpha",
+    MailEnabled = true,
+    SecurityEnabled = false,
+    GroupTypes = new List<string> { "Unified" },
+    MembersODataBind = new List<string>
+    {
+        $"https://graph.microsoft.com/v1.0/users/{userId1}",
+        $"https://graph.microsoft.com/v1.0/users/{userId2}",
+        $"https://graph.microsoft.com/v1.0/users/{userId3}"
+    }
+};
+
+var createdGroup = await graphClient.Groups
+    .PostAsync(newGroup);
+```
+
+### List Group Members
+
+```csharp
+var members = await graphClient.Groups["group-id"].Members
+    .GetAsync();
+
+foreach (var member in members.Value)
+{
+    if (member is User user)
+    {
+        Console.WriteLine($"User: {user.DisplayName}");
+    }
+    else if (member is Group group)
+    {
+        Console.WriteLine($"Nested Group: {group.DisplayName}");
+    }
+}
+```
+
+### Remove a Member
+
+```csharp
+await graphClient.Groups["group-id"]
+    .Members["user-id"]
+    .Ref
+    .DeleteAsync();
+```
+
+### Check Membership
+
+```csharp
+var memberOf = await graphClient.Users["user-id"].MemberOf
+    .GetAsync(requestConfiguration =>
+    {
+        requestConfiguration.QueryParameters.Filter = 
+            $"id eq '{groupId}'";
+    });
+
+bool isMember = memberOf.Value.Count > 0;
+```
+
+## Managing Group Owners
+
+### Add an Owner
+
+```csharp
+var ownerReference = new ReferenceCreate
+{
+    OdataId = $"https://graph.microsoft.com/v1.0/users/{userId}"
+};
+
+await graphClient.Groups["group-id"].Owners.Ref
+    .PostAsync(ownerReference);
+```
+
+### List Owners
+
+```csharp
+var owners = await graphClient.Groups["group-id"].Owners
+    .GetAsync();
+
+foreach (var owner in owners.Value)
+{
+    if (owner is User user)
+    {
+        Console.WriteLine($"{user.DisplayName} - {user.Mail}");
+    }
+}
+```
+
+## Updating Groups
+
+### Update Group Properties
+
+```csharp
+var groupUpdate = new Group
+{
+    DisplayName = "Marketing Team - Updated",
+    Description = "Updated description",
+    Visibility = "Public"
+};
+
+await graphClient.Groups["group-id"]
+    .PatchAsync(groupUpdate);
+```
+
+## Deleting Groups
+
+### Delete a Group
+
+```csharp
+await graphClient.Groups["group-id"]
+    .DeleteAsync();
+```
+
+### Restore a Deleted Group
+
+<Note>
+Deleted groups can be restored within 30 days.
+</Note>
+
+```csharp
+// List deleted groups
+var deletedGroups = await graphClient.Directory.DeletedItems
+    .GraphGroup
+    .GetAsync();
+
+// Restore a group
+await graphClient.Directory.DeletedItems
+    .GraphGroup["group-id"]
+    .Restore
+    .PostAsync(new RestorePostRequestBody());
+```
+
+## Working with Group Resources
+
+### Access Group Calendar
+
+```csharp
+// Get group calendar events
+var events = await graphClient.Groups["group-id"]
+    .Calendar
+    .Events
+    .GetAsync();
+
+// Create a group event
+var newEvent = new Event
+{
+    Subject = "Team Meeting",
+    Start = new DateTimeTimeZone
+    {
+        DateTime = "2024-03-15T10:00:00",
+        TimeZone = "Pacific Standard Time"
+    },
+    End = new DateTimeTimeZone
+    {
+        DateTime = "2024-03-15T11:00:00",
+        TimeZone = "Pacific Standard Time"
+    }
+};
+
+await graphClient.Groups["group-id"]
+    .Calendar
+    .Events
+    .PostAsync(newEvent);
+```
+
+### Access Group Drive
+
+```csharp
+// Get group drive
+var drive = await graphClient.Groups["group-id"]
+    .Drive
+    .GetAsync();
+
+// List files in root
+var items = await graphClient.Groups["group-id"]
+    .Drive
+    .Root
+    .Children
+    .GetAsync();
+
+foreach (var item in items.Value)
+{
+    Console.WriteLine($"{item.Name} - {item.Size} bytes");
+}
+```
+
+## Advanced Scenarios
+
+### Get Groups with Transitive Members
+
+```csharp
+var members = await graphClient.Groups["group-id"]
+    .TransitiveMembers
+    .GetAsync();
+```
+
+### Check Member Groups for a User
+
+```csharp
+var requestBody = new CheckMemberGroupsPostRequestBody
+{
+    GroupIds = new List<string>
+    {
+        "group-id-1",
+        "group-id-2",
+        "group-id-3"
+    }
+};
+
+var memberGroups = await graphClient.Users["user-id"]
+    .CheckMemberGroups
+    .PostAsync(requestBody);
+
+foreach (var groupId in memberGroups.Value)
+{
+    Console.WriteLine($"User is member of: {groupId}");
+}
+```
+
+## Complete Example
+
+```csharp
+using Microsoft.Graph;
+using Microsoft.Graph.Models;
+using Microsoft.Graph.Models.ODataErrors;
+
+public class GroupManager
+{
+    private readonly GraphServiceClient _graphClient;
+
+    public GroupManager(GraphServiceClient graphClient)
+    {
+        _graphClient = graphClient;
+    }
+
+    public async Task<Group> CreateTeamGroupWithMembersAsync(
+        string displayName,
+        string description,
+        List<string> memberIds,
+        List<string> ownerIds)
+    {
+        try
+        {
+            // Prepare member references
+            var memberReferences = memberIds
+                .Select(id => $"https://graph.microsoft.com/v1.0/users/{id}")
+                .ToList();
+
+            // Prepare owner references (owners must also be members)
+            var ownerReferences = ownerIds
+                .Select(id => $"https://graph.microsoft.com/v1.0/users/{id}")
+                .ToList();
+
+            // Ensure all owners are also in members list
+            memberReferences.AddRange(
+                ownerReferences.Except(memberReferences)
+            );
+
+            // Create group
+            var newGroup = new Group
+            {
+                DisplayName = displayName,
+                Description = description,
+                MailNickname = displayName.Replace(" ", "-").ToLower(),
+                MailEnabled = true,
+                SecurityEnabled = false,
+                GroupTypes = new List<string> { "Unified" },
+                Visibility = "Private",
+                MembersODataBind = memberReferences,
+                OwnersODataBind = ownerReferences
+            };
+
+            var createdGroup = await _graphClient.Groups
+                .PostAsync(newGroup);
+
+            Console.WriteLine($"Created group: {createdGroup.DisplayName}");
+            Console.WriteLine($"Group ID: {createdGroup.Id}");
+            Console.WriteLine($"Email: {createdGroup.Mail}");
+
+            return createdGroup;
+        }
+        catch (ODataError error)
+        {
+            Console.WriteLine($"Error creating group: {error.Error.Message}");
+            throw;
+        }
+    }
+
+    public async Task<List<User>> GetAllMembersAsync(string groupId)
+    {
+        var allMembers = new List<User>();
+        
+        var members = await _graphClient.Groups[groupId].Members
+            .GetAsync();
+
+        // Handle pagination
+        var pageIterator = PageIterator<DirectoryObject, DirectoryObjectCollectionResponse>
+            .CreatePageIterator(
+                _graphClient,
+                members,
+                (member) =>
+                {
+                    if (member is User user)
+                    {
+                        allMembers.Add(user);
+                    }
+                    return true;
+                }
+            );
+
+        await pageIterator.IterateAsync();
+
+        return allMembers;
+    }
+}
+```
+
+## Next Steps
+
+- [Working with Users](/guides/working-with-users) - Manage group members
+- [Working with Mail](/guides/working-with-mail) - Send mail as group
+- [API Reference](/api-reference/groups) - Complete Groups API reference

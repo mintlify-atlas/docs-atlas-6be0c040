@@ -1,0 +1,364 @@
+---
+title: Installation
+description: Install and configure the Microsoft Graph .NET SDK in your project
+---
+
+This guide walks you through installing the Microsoft Graph .NET SDK and setting up your development environment.
+
+## Prerequisites
+
+Before installing the SDK, ensure you have:
+
+- **.NET SDK** installed (version 5.0 or later recommended)
+- **Visual Studio 2019/2022**, **Visual Studio Code**, or **JetBrains Rider**
+- **NuGet package manager** (included with Visual Studio and .NET CLI)
+
+<Info>
+The SDK targets .NET Standard 2.0, .NET Standard 2.1, and .NET 5.0+, making it compatible with a wide range of .NET applications.
+</Info>
+
+## Installation via NuGet
+
+There are several ways to install the Microsoft Graph .NET SDK package.
+
+### Option 1: Package Manager Console
+
+If you're using Visual Studio, open the Package Manager Console and run:
+
+```powershell
+Install-Package Microsoft.Graph
+```
+
+### Option 2: .NET CLI
+
+From your project directory, run:
+
+```bash
+dotnet add package Microsoft.Graph
+```
+
+### Option 3: Visual Studio NuGet Manager
+
+<Steps>
+  <Step title="Open NuGet Package Manager">
+    Right-click on your project in Solution Explorer and select "Manage NuGet Packages"
+  </Step>
+  
+  <Step title="Search for Microsoft.Graph">
+    In the Browse tab, search for `Microsoft.Graph`
+  </Step>
+  
+  <Step title="Install the Package">
+    Select the Microsoft.Graph package and click Install
+  </Step>
+</Steps>
+
+### Option 4: Project File
+
+Add the package reference directly to your `.csproj` file:
+
+```xml
+<ItemGroup>
+  <PackageReference Include="Microsoft.Graph" Version="5.*" />
+</ItemGroup>
+```
+
+<Tip>
+Using `5.*` ensures you get the latest v5.x version with bug fixes and new features while avoiding breaking changes from major version updates.
+</Tip>
+
+## Installing Authentication Dependencies
+
+The SDK requires authentication credentials. Install Azure.Identity for TokenCredential support:
+
+### Using .NET CLI
+
+```bash
+dotnet add package Azure.Identity
+```
+
+### Using Package Manager Console
+
+```powershell
+Install-Package Azure.Identity
+```
+
+<Note>
+Azure.Identity provides production-ready authentication implementations including interactive browser, device code, client secret, and certificate-based authentication.
+</Note>
+
+## Target Framework Requirements
+
+The Microsoft Graph .NET SDK supports multiple target frameworks:
+
+| Target Framework | Minimum Version | Recommended For |
+|-----------------|----------------|-----------------|
+| .NET Standard 2.0 | 2.0.0 | .NET Framework 4.6.1+, Broad compatibility |
+| .NET Standard 2.1 | 2.1.0 | .NET Core 3.0+, Better performance |
+| .NET 5+ | 5.0 | Modern .NET applications, Latest features |
+
+### Verify Your Project Configuration
+
+Check your `.csproj` file to ensure compatibility:
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Single target framework -->
+    <TargetFramework>net8.0</TargetFramework>
+    
+    <!-- Or multiple targets -->
+    <!-- <TargetFrameworks>net6.0;net7.0;net8.0</TargetFrameworks> -->
+  </PropertyGroup>
+  
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Graph" Version="5.*" />
+    <PackageReference Include="Azure.Identity" Version="1.*" />
+  </ItemGroup>
+</Project>
+```
+
+## Package Dependencies
+
+When you install Microsoft.Graph, the following dependencies are automatically installed:
+
+### Microsoft.Graph.Core
+
+**Version:** 3.x  
+**Purpose:** Core abstractions, HTTP middleware, and request infrastructure
+
+The Core package provides:
+- HTTP handler middleware for retry, redirect, and authentication
+- Request/response abstractions
+- Serialization infrastructure
+- Batch request support
+
+### Kiota Packages
+
+The v5 SDK uses Kiota for code generation and includes:
+- **Microsoft.Kiota.Abstractions** - Core abstractions for request building
+- **Microsoft.Kiota.Http.HttpClientLibrary** - HTTP client implementation
+- **Microsoft.Kiota.Serialization.Json** - JSON serialization
+- **Microsoft.Kiota.Authentication.Azure** - Azure authentication integration
+
+<Info>
+All Kiota dependencies are automatically managed - you don't need to install them separately.
+</Info>
+
+## Verifying Installation
+
+After installation, verify the SDK is working correctly.
+
+### Create a Test File
+
+Create a new file `GraphTest.cs`:
+
+```csharp
+using Microsoft.Graph;
+using Microsoft.Graph.Models;
+using Azure.Identity;
+
+namespace MyApp
+{
+    public class GraphTest
+    {
+        public static void VerifyInstallation()
+        {
+            // If this compiles, the SDK is installed correctly
+            var credential = new ClientSecretCredential(
+                "tenant-id", 
+                "client-id", 
+                "client-secret"
+            );
+            
+            var graphClient = new GraphServiceClient(credential);
+            
+            Console.WriteLine("Microsoft Graph .NET SDK installed successfully!");
+            Console.WriteLine($"SDK version: {typeof(GraphServiceClient).Assembly.GetName().Version}");
+        }
+    }
+}
+```
+
+### Build Your Project
+
+```bash
+dotnet build
+```
+
+If the build succeeds without errors, the SDK is installed correctly!
+
+<Tip>
+You can check the installed package version by running `dotnet list package` in your project directory.
+</Tip>
+
+## Common Installation Issues
+
+### Issue: Package Restore Fails
+
+**Error message:**
+```
+Unable to find package Microsoft.Graph
+```
+
+**Solution:**
+1. Ensure you have internet connectivity
+2. Clear NuGet cache: `dotnet nuget locals all --clear`
+3. Restore packages: `dotnet restore`
+
+### Issue: Version Conflicts
+
+**Error message:**
+```
+Version conflict detected for Microsoft.Graph.Core
+```
+
+**Solution:**
+Add explicit package references to resolve conflicts:
+
+```xml
+<ItemGroup>
+  <PackageReference Include="Microsoft.Graph" Version="5.103.0" />
+  <PackageReference Include="Microsoft.Graph.Core" Version="3.*" />
+</ItemGroup>
+```
+
+### Issue: .NET Framework Compatibility
+
+**Error message:**
+```
+Package Microsoft.Graph 5.x is not compatible with net461
+```
+
+**Solution:**
+For .NET Framework projects, ensure you're targeting at least .NET Framework 4.6.1. Update your `.csproj`:
+
+```xml
+<TargetFramework>net462</TargetFramework>
+```
+
+<Warning>
+.NET Framework 4.6.1 is the minimum supported version. For better performance and security, consider upgrading to .NET 6.0 or later.
+</Warning>
+
+### Issue: Long Path Names (Windows)
+
+**Error message:**
+```
+The specified path, file name, or both are too long
+```
+
+**Solution:**
+Enable long path support on Windows:
+
+1. Run in command prompt as Administrator:
+```bash
+git config --system core.longpaths true
+```
+
+2. Set registry key:
+```
+HKLM\SYSTEM\CurrentControlSet\Control\FileSystem
+Set LongPathsEnabled to 1
+```
+
+## Development Environment Setup
+
+### Visual Studio Configuration
+
+For the best development experience in Visual Studio:
+
+<Steps>
+  <Step title="Enable NuGet Package Restore">
+    Tools → Options → NuGet Package Manager → General  
+    Check "Allow NuGet to download missing packages"
+  </Step>
+  
+  <Step title="Enable IntelliSense">
+    The SDK includes XML documentation for full IntelliSense support  
+    Ensure "Tools → Options → Text Editor → C# → IntelliSense" is enabled
+  </Step>
+  
+  <Step title="Configure Code Analysis">
+    Consider enabling code analysis for best practices  
+    Project Properties → Code Analysis
+  </Step>
+</Steps>
+
+### Visual Studio Code Configuration
+
+For VS Code users, install these extensions:
+
+- **C# Dev Kit** - Full C# language support
+- **NuGet Package Manager** - GUI for managing packages
+- **.NET Core Test Explorer** - For running tests
+
+### JetBrains Rider Configuration
+
+Rider includes built-in NuGet support. After installation:
+
+1. Enable automatic package restore: Settings → Build, Execution, Deployment → NuGet
+2. The SDK's XML documentation will automatically provide IntelliSense
+
+## Additional Packages
+
+Depending on your scenarios, you may want to install additional packages:
+
+### Microsoft.Graph.Beta
+
+For beta endpoint access:
+
+```bash
+dotnet add package Microsoft.Graph.Beta
+```
+
+<Warning>
+Beta APIs are not supported for production use. They may change without notice and should only be used for development and testing.
+</Warning>
+
+### Microsoft.Identity.Client (MSAL)
+
+For advanced authentication scenarios:
+
+```bash
+dotnet add package Microsoft.Identity.Client
+```
+
+<Note>
+Azure.Identity is built on top of MSAL and is recommended for most scenarios. Only use MSAL directly if you need advanced authentication customization.
+</Note>
+
+## Next Steps
+
+Now that you have the SDK installed, you're ready to build your first Microsoft Graph application!
+
+<CardGroup cols={2}>
+  <Card title="Quick Start Guide" icon="bolt" href="/quickstart">
+    Build your first Graph API call in 5 minutes
+  </Card>
+  
+  <Card title="Authentication Setup" icon="key" href="/authentication">
+    Configure authentication for your application
+  </Card>
+  
+  <Card title="Core Concepts" icon="book" href="/core-concepts">
+    Learn about request builders and models
+  </Card>
+  
+  <Card title="Sample Applications" icon="code" href="/samples">
+    Explore working code examples
+  </Card>
+</CardGroup>
+
+## Package Information
+
+- **Package Name:** Microsoft.Graph
+- **Current Version:** 5.103.0
+- **License:** MIT License
+- **Repository:** [GitHub - microsoftgraph/msgraph-sdk-dotnet](https://github.com/microsoftgraph/msgraph-sdk-dotnet)
+- **NuGet:** [nuget.org/packages/Microsoft.Graph](https://www.nuget.org/packages/Microsoft.Graph)
+- **Release Cadence:** Updated during the second and fourth week of each month
+
+<Info>
+View the complete [changelog](https://github.com/microsoftgraph/msgraph-sdk-dotnet/blob/main/CHANGELOG.md) for detailed release notes and version history.
+</Info>

@@ -1,0 +1,583 @@
+---
+title: 'Events'
+description: 'Calendar event operations in Microsoft Graph'
+---
+
+## Overview
+
+The Events API provides operations to manage calendar events. Access through `graphClient.Me.Events`, `graphClient.Me.Calendar.Events`, or `graphClient.Users[userId].Events`.
+
+## Request Builders
+
+```csharp
+// All events for current user
+public EventsRequestBuilder Events { get; }
+// Access: graphClient.Me.Events
+
+// Events in specific calendar
+public EventsRequestBuilder Events { get; }
+// Access: graphClient.Me.Calendar.Events
+// Access: graphClient.Me.Calendars["calendar-id"].Events
+
+// Group calendar events
+public EventsRequestBuilder Events { get; }
+// Access: graphClient.Groups["group-id"].Events
+```
+
+## Operations
+
+### List Events
+
+Retrieve calendar events.
+
+```csharp
+public async Task<EventCollectionResponse> GetAsync(
+    Action<RequestConfiguration<EventsRequestBuilderGetQueryParameters>> requestConfiguration = default,
+    CancellationToken cancellationToken = default
+)
+```
+
+**Query Parameters:**
+
+<ParamField path="$select" type="string[]">
+  Properties to return (e.g., `["subject", "start", "end", "attendees"]`)
+</ParamField>
+
+<ParamField path="$filter" type="string">
+  Filter expression (e.g., `"start/dateTime ge '2024-03-01T00:00:00Z'"`)
+</ParamField>
+
+<ParamField path="$orderby" type="string[]">
+  Sort order (e.g., `["start/dateTime"]`)
+</ParamField>
+
+<ParamField path="$top" type="int">
+  Number of events to return
+</ParamField>
+
+<ParamField path="$expand" type="string[]">
+  Expand related entities (e.g., `["attachments"]`)
+</ParamField>
+
+**Example:**
+
+```csharp
+// Get all events
+var events = await graphClient.Me.Events.GetAsync();
+
+foreach (var evt in events.Value)
+{
+    Console.WriteLine($"{evt.Subject}");
+    Console.WriteLine($"  Start: {evt.Start.DateTime} {evt.Start.TimeZone}");
+    Console.WriteLine($"  End: {evt.End.DateTime} {evt.End.TimeZone}");
+}
+
+// Get upcoming events
+var upcomingEvents = await graphClient.Me.Events.GetAsync(config =>
+{
+    config.QueryParameters.Filter = $"start/dateTime ge '{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ssZ}'";
+    config.QueryParameters.Orderby = new[] { "start/dateTime" };
+    config.QueryParameters.Top = 10;
+});
+
+// Get events in date range
+var startDate = new DateTime(2024, 3, 1);
+var endDate = new DateTime(2024, 3, 31);
+
+var monthEvents = await graphClient.Me.Events.GetAsync(config =>
+{
+    config.QueryParameters.Filter = 
+        $"start/dateTime ge '{startDate:yyyy-MM-ddTHH:mm:ssZ}' and " +
+        $"end/dateTime le '{endDate:yyyy-MM-ddTHH:mm:ssZ}'";
+});
+```
+
+### Create Event
+
+Create a new calendar event.
+
+```csharp
+public async Task<Event> PostAsync(
+    Event body,
+    Action<RequestConfiguration<DefaultQueryParameters>> requestConfiguration = default,
+    CancellationToken cancellationToken = default
+)
+```
+
+**Example:**
+
+```csharp
+var newEvent = new Event
+{
+    Subject = "Project Kickoff Meeting",
+    Body = new ItemBody
+    {
+        ContentType = BodyType.Html,
+        Content = "<p>Discuss project objectives and timeline</p>"
+    },
+    Start = new DateTimeTimeZone
+    {
+        DateTime = "2024-03-20T10:00:00",
+        TimeZone = "Pacific Standard Time"
+    },
+    End = new DateTimeTimeZone
+    {
+        DateTime = "2024-03-20T11:00:00",
+        TimeZone = "Pacific Standard Time"
+    },
+    Location = new Location
+    {
+        DisplayName = "Conference Room A",
+        LocationType = LocationType.ConferenceRoom
+    },
+    Attendees = new List<Attendee>
+    {
+        new Attendee
+        {
+            EmailAddress = new EmailAddress
+            {
+                Address = "john@contoso.com",
+                Name = "John Doe"
+            },
+            Type = AttendeeType.Required
+        },
+        new Attendee
+        {
+            EmailAddress = new EmailAddress
+            {
+                Address = "jane@contoso.com",
+                Name = "Jane Smith"
+            },
+            Type = AttendeeType.Optional
+        }
+    },
+    IsOnlineMeeting = true,
+    OnlineMeetingProvider = OnlineMeetingProviderType.TeamsForBusiness
+};
+
+var evt = await graphClient.Me.Events.PostAsync(newEvent);
+Console.WriteLine($"Event created: {evt.Id}");
+Console.WriteLine($"Teams meeting URL: {evt.OnlineMeeting.JoinUrl}");
+```
+
+### Get Event by ID
+
+```csharp
+var evt = await graphClient.Me.Events["event-id"].GetAsync();
+
+// Select specific properties
+var evt = await graphClient.Me.Events["event-id"].GetAsync(config =>
+{
+    config.QueryParameters.Select = new[] { "subject", "start", "end", "attendees" };
+});
+```
+
+### Update Event
+
+```csharp
+var updateEvent = new Event
+{
+    Subject = "Updated Meeting Title",
+    Location = new Location
+    {
+        DisplayName = "Conference Room B"
+    }
+};
+
+await graphClient.Me.Events["event-id"].PatchAsync(updateEvent);
+```
+
+### Delete Event
+
+```csharp
+await graphClient.Me.Events["event-id"].DeleteAsync();
+```
+
+## Event Actions
+
+### Accept Event
+
+```csharp
+var acceptBody = new AcceptPostRequestBody
+{
+    Comment = "I'll be there!",
+    SendResponse = true
+};
+
+await graphClient.Me.Events["event-id"].Accept.PostAsync(acceptBody);
+```
+
+### Decline Event
+
+```csharp
+var declineBody = new DeclinePostRequestBody
+{
+    Comment = "Unable to attend",
+    SendResponse = true,
+    ProposedNewTime = new TimeSlot
+    {
+        Start = new DateTimeTimeZone
+        {
+            DateTime = "2024-03-20T14:00:00",
+            TimeZone = "Pacific Standard Time"
+        },
+        End = new DateTimeTimeZone
+        {
+            DateTime = "2024-03-20T15:00:00",
+            TimeZone = "Pacific Standard Time"
+        }
+    }
+};
+
+await graphClient.Me.Events["event-id"].Decline.PostAsync(declineBody);
+```
+
+### Tentatively Accept
+
+```csharp
+var tentativelyAcceptBody = new TentativelyAcceptPostRequestBody
+{
+    Comment = "Tentatively accepting, will confirm later",
+    SendResponse = true
+};
+
+await graphClient.Me.Events["event-id"].TentativelyAccept.PostAsync(tentativelyAcceptBody);
+```
+
+### Cancel Event (Organizer)
+
+```csharp
+var cancelBody = new CancelPostRequestBody
+{
+    Comment = "Meeting cancelled due to scheduling conflict"
+};
+
+await graphClient.Me.Events["event-id"].Cancel.PostAsync(cancelBody);
+```
+
+### Forward Event
+
+```csharp
+var forwardBody = new ForwardPostRequestBody
+{
+    Comment = "Please attend on my behalf",
+    ToRecipients = new List<Recipient>
+    {
+        new Recipient
+        {
+            EmailAddress = new EmailAddress
+            {
+                Address = "colleague@contoso.com"
+            }
+        }
+    }
+};
+
+await graphClient.Me.Events["event-id"].Forward.PostAsync(forwardBody);
+```
+
+### Snooze Reminder
+
+```csharp
+var snoozeBody = new SnoozeReminderPostRequestBody
+{
+    NewReminderTime = new DateTimeTimeZone
+    {
+        DateTime = DateTime.Now.AddMinutes(10).ToString("yyyy-MM-ddTHH:mm:ss"),
+        TimeZone = "Pacific Standard Time"
+    }
+};
+
+await graphClient.Me.Events["event-id"].SnoozeReminder.PostAsync(snoozeBody);
+```
+
+### Dismiss Reminder
+
+```csharp
+await graphClient.Me.Events["event-id"].DismissReminder.PostAsync();
+```
+
+## Recurring Events
+
+### Create Recurring Event
+
+```csharp
+var recurringEvent = new Event
+{
+    Subject = "Weekly Team Sync",
+    Start = new DateTimeTimeZone
+    {
+        DateTime = "2024-03-18T09:00:00",
+        TimeZone = "Pacific Standard Time"
+    },
+    End = new DateTimeTimeZone
+    {
+        DateTime = "2024-03-18T09:30:00",
+        TimeZone = "Pacific Standard Time"
+    },
+    Recurrence = new PatternedRecurrence
+    {
+        Pattern = new RecurrencePattern
+        {
+            Type = RecurrencePatternType.Weekly,
+            Interval = 1,
+            DaysOfWeek = new[] { DayOfWeek.Monday }
+        },
+        Range = new RecurrenceRange
+        {
+            Type = RecurrenceRangeType.NoEnd,
+            StartDate = new Date(2024, 3, 18)
+        }
+    }
+};
+
+await graphClient.Me.Events.PostAsync(recurringEvent);
+```
+
+### Get Event Instances
+
+Get instances of a recurring event.
+
+```csharp
+var startDate = DateTime.UtcNow;
+var endDate = startDate.AddMonths(3);
+
+var instances = await graphClient.Me.Events["recurring-event-id"]
+    .Instances.GetAsync(config =>
+{
+    config.QueryParameters.StartDateTime = startDate.ToString("yyyy-MM-ddTHH:mm:ssZ");
+    config.QueryParameters.EndDateTime = endDate.ToString("yyyy-MM-ddTHH:mm:ssZ");
+});
+
+foreach (var instance in instances.Value)
+{
+    Console.WriteLine($"{instance.Subject} - {instance.Start.DateTime}");
+}
+```
+
+### Update Single Instance
+
+```csharp
+var exception = new Event
+{
+    Subject = "Weekly Team Sync (Special Topic)",
+    Start = new DateTimeTimeZone
+    {
+        DateTime = "2024-03-25T10:00:00", // Different time
+        TimeZone = "Pacific Standard Time"
+    },
+    End = new DateTimeTimeZone
+    {
+        DateTime = "2024-03-25T11:00:00",
+        TimeZone = "Pacific Standard Time"
+    }
+};
+
+await graphClient.Me.Events["instance-id"].PatchAsync(exception);
+```
+
+## Attachments
+
+### List Attachments
+
+```csharp
+var attachments = await graphClient.Me.Events["event-id"].Attachments.GetAsync();
+
+foreach (var attachment in attachments.Value)
+{
+    if (attachment is FileAttachment fileAttachment)
+    {
+        Console.WriteLine($"File: {fileAttachment.Name}");
+    }
+}
+```
+
+### Add File Attachment
+
+```csharp
+var fileBytes = File.ReadAllBytes("agenda.pdf");
+var attachment = new FileAttachment
+{
+    Name = "agenda.pdf",
+    ContentType = "application/pdf",
+    ContentBytes = fileBytes
+};
+
+await graphClient.Me.Events["event-id"].Attachments.PostAsync(attachment);
+```
+
+## Online Meetings
+
+### Create Event with Teams Meeting
+
+```csharp
+var teamsEvent = new Event
+{
+    Subject = "Virtual Team Meeting",
+    Start = new DateTimeTimeZone
+    {
+        DateTime = "2024-03-20T14:00:00",
+        TimeZone = "Pacific Standard Time"
+    },
+    End = new DateTimeTimeZone
+    {
+        DateTime = "2024-03-20T15:00:00",
+        TimeZone = "Pacific Standard Time"
+    },
+    Attendees = new List<Attendee>
+    {
+        new Attendee
+        {
+            EmailAddress = new EmailAddress { Address = "user@contoso.com" },
+            Type = AttendeeType.Required
+        }
+    },
+    IsOnlineMeeting = true,
+    OnlineMeetingProvider = OnlineMeetingProviderType.TeamsForBusiness
+};
+
+var evt = await graphClient.Me.Events.PostAsync(teamsEvent);
+
+Console.WriteLine($"Teams Join URL: {evt.OnlineMeeting.JoinUrl}");
+Console.WriteLine($"Conference ID: {evt.OnlineMeeting.ConferenceId}");
+```
+
+## Event Types and Patterns
+
+### All-Day Event
+
+```csharp
+var allDayEvent = new Event
+{
+    Subject = "Company Holiday",
+    Start = new DateTimeTimeZone
+    {
+        DateTime = "2024-12-25",
+        TimeZone = "Pacific Standard Time"
+    },
+    End = new DateTimeTimeZone
+    {
+        DateTime = "2024-12-26",
+        TimeZone = "Pacific Standard Time"
+    },
+    IsAllDay = true
+};
+```
+
+### Daily Recurrence
+
+```csharp
+Recurrence = new PatternedRecurrence
+{
+    Pattern = new RecurrencePattern
+    {
+        Type = RecurrencePatternType.Daily,
+        Interval = 1
+    },
+    Range = new RecurrenceRange
+    {
+        Type = RecurrenceRangeType.EndDate,
+        StartDate = new Date(2024, 3, 1),
+        EndDate = new Date(2024, 12, 31)
+    }
+}
+```
+
+### Monthly Recurrence
+
+```csharp
+Recurrence = new PatternedRecurrence
+{
+    Pattern = new RecurrencePattern
+    {
+        Type = RecurrencePatternType.AbsoluteMonthly,
+        Interval = 1,
+        DayOfMonth = 15 // 15th of each month
+    },
+    Range = new RecurrenceRange
+    {
+        Type = RecurrenceRangeType.Numbered,
+        StartDate = new Date(2024, 1, 15),
+        NumberOfOccurrences = 12
+    }
+}
+```
+
+## Delta Query
+
+Get incremental changes.
+
+```csharp
+var deltaResponse = await graphClient.Me.Calendar.Events.Delta.GetAsync();
+
+foreach (var evt in deltaResponse.Value)
+{
+    Console.WriteLine($"Changed: {evt.Subject}");
+}
+
+// Store deltaLink for next query
+var deltaLink = deltaResponse.OdataDeltaLink;
+```
+
+## Common Filtering
+
+```csharp
+// Events today
+var today = DateTime.Today;
+var tomorrow = today.AddDays(1);
+config.QueryParameters.Filter = 
+    $"start/dateTime ge '{today:yyyy-MM-ddTHH:mm:ssZ}' and " +
+    $"end/dateTime lt '{tomorrow:yyyy-MM-ddTHH:mm:ssZ}'";
+
+// Events this week
+var weekStart = DateTime.Today.AddDays(-(int)DateTime.Today.DayOfWeek);
+var weekEnd = weekStart.AddDays(7);
+config.QueryParameters.Filter = 
+    $"start/dateTime ge '{weekStart:yyyy-MM-ddTHH:mm:ssZ}' and " +
+    $"end/dateTime lt '{weekEnd:yyyy-MM-ddTHH:mm:ssZ}'";
+
+// Events I organized
+config.QueryParameters.Filter = "isOrganizer eq true";
+
+// Events with specific attendee
+config.QueryParameters.Filter = "attendees/any(a:a/emailAddress/address eq 'user@contoso.com')";
+```
+
+## Error Handling
+
+```csharp
+using Microsoft.Graph.Models.ODataErrors;
+
+try
+{
+    var evt = await graphClient.Me.Events["invalid-id"].GetAsync();
+}
+catch (ODataError error)
+{
+    if (error.Error.Code == "ErrorItemNotFound")
+    {
+        Console.WriteLine("Event not found");
+    }
+    else
+    {
+        Console.WriteLine($"Error: {error.Error.Message}");
+    }
+}
+```
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Event Model" href="https://learn.microsoft.com/graph/api/resources/event" icon="calendar-days">
+    Event resource properties
+  </Card>
+  <Card title="Calendar API" href="/api-reference/calendar" icon="calendar">
+    Calendar operations
+  </Card>
+  <Card title="Messages API" href="/api-reference/messages" icon="envelope">
+    Email message operations
+  </Card>
+  <Card title="Online Meetings" href="https://learn.microsoft.com/graph/api/resources/onlinemeeting" icon="video">
+    Teams online meetings
+  </Card>
+</CardGroup>

@@ -1,0 +1,468 @@
+---
+title: 'Groups'
+description: 'Group management operations in Microsoft Graph'
+---
+
+## Overview
+
+The Groups API provides operations to manage group entities in Azure Active Directory and Microsoft 365. Access through `graphClient.Groups`.
+
+## Request Builder
+
+```csharp
+public GroupsRequestBuilder Groups { get; }
+```
+
+Accessed via: `graphClient.Groups`
+
+## Operations
+
+### List Groups
+
+Retrieve a list of group objects.
+
+```csharp
+public async Task<GroupCollectionResponse> GetAsync(
+    Action<RequestConfiguration<GroupsRequestBuilderGetQueryParameters>> requestConfiguration = default,
+    CancellationToken cancellationToken = default
+)
+```
+
+**Query Parameters:**
+
+<ParamField path="$select" type="string[]">
+  Properties to include (e.g., `["id", "displayName", "mail"]`)
+</ParamField>
+
+<ParamField path="$filter" type="string">
+  Filter expression (e.g., `"mailEnabled eq true"`)
+</ParamField>
+
+<ParamField path="$orderby" type="string[]">
+  Sort order (e.g., `["displayName"]`)
+</ParamField>
+
+<ParamField path="$top" type="int">
+  Number of items to return
+</ParamField>
+
+<ParamField path="$skip" type="int">
+  Number of items to skip
+</ParamField>
+
+<ParamField path="$search" type="string">
+  Search query (requires ConsistencyLevel header)
+</ParamField>
+
+<ParamField path="$count" type="bool">
+  Include count of items
+</ParamField>
+
+<ParamField path="$expand" type="string[]">
+  Related entities to expand (e.g., `["members"]`)
+</ParamField>
+
+**Response:**
+
+<ResponseField name="value" type="Group[]">
+  Array of group objects
+</ResponseField>
+
+<ResponseField name="@odata.nextLink" type="string">
+  URL for next page of results
+</ResponseField>
+
+**Example:**
+
+```csharp
+// Get all groups
+var groups = await graphClient.Groups.GetAsync();
+
+foreach (var group in groups.Value)
+{
+    Console.WriteLine($"{group.DisplayName} - {group.Mail}");
+}
+
+// Filter mail-enabled security groups
+var mailGroups = await graphClient.Groups.GetAsync(config =>
+{
+    config.QueryParameters.Filter = "mailEnabled eq true and securityEnabled eq true";
+    config.QueryParameters.Select = new[] { "id", "displayName", "mail" };
+});
+
+// Search groups
+var searchResults = await graphClient.Groups.GetAsync(config =>
+{
+    config.QueryParameters.Search = "\"displayName:Engineering\"";
+    config.Headers.Add("ConsistencyLevel", "eventual");
+});
+```
+
+### Create Group
+
+Create a new group.
+
+```csharp
+public async Task<Group> PostAsync(
+    Group body,
+    Action<RequestConfiguration<DefaultQueryParameters>> requestConfiguration = default,
+    CancellationToken cancellationToken = default
+)
+```
+
+<ParamField path="body" type="Group" required>
+  Group object with required properties
+</ParamField>
+
+**Required Properties:**
+
+- `DisplayName` - Group display name
+- `MailNickname` - Email alias
+- `MailEnabled` - Whether group is mail-enabled
+- `SecurityEnabled` - Whether group is security-enabled
+
+**Example:**
+
+```csharp
+// Create Microsoft 365 group
+var newGroup = new Group
+{
+    DisplayName = "Engineering Team",
+    MailNickname = "engineering",
+    Description = "Engineering department group",
+    MailEnabled = true,
+    SecurityEnabled = false,
+    GroupTypes = new[] { "Unified" },
+    Visibility = "Private"
+};
+
+var group = await graphClient.Groups.PostAsync(newGroup);
+
+// Create security group
+var securityGroup = new Group
+{
+    DisplayName = "IT Security",
+    MailNickname = "itsecurity",
+    MailEnabled = false,
+    SecurityEnabled = true
+};
+
+var group = await graphClient.Groups.PostAsync(securityGroup);
+
+// Create mail-enabled security group
+var mailSecGroup = new Group
+{
+    DisplayName = "Marketing Team",
+    MailNickname = "marketing",
+    MailEnabled = true,
+    SecurityEnabled = true
+};
+
+var group = await graphClient.Groups.PostAsync(mailSecGroup);
+```
+
+### Get Group by ID
+
+Retrieve a specific group.
+
+```csharp
+var group = await graphClient.Groups["group-id"].GetAsync();
+
+// Select specific properties
+var group = await graphClient.Groups["group-id"].GetAsync(config =>
+{
+    config.QueryParameters.Select = new[] { "id", "displayName", "description" };
+});
+
+// Expand members
+var group = await graphClient.Groups["group-id"].GetAsync(config =>
+{
+    config.QueryParameters.Expand = new[] { "members" };
+});
+```
+
+### Update Group
+
+Update group properties.
+
+```csharp
+var groupToUpdate = new Group
+{
+    Description = "Updated description",
+    Visibility = "Public"
+};
+
+await graphClient.Groups["group-id"].PatchAsync(groupToUpdate);
+```
+
+### Delete Group
+
+Delete a group.
+
+```csharp
+await graphClient.Groups["group-id"].DeleteAsync();
+```
+
+## Member Management
+
+### List Members
+
+```csharp
+var members = await graphClient.Groups["group-id"].Members.GetAsync();
+
+foreach (var member in members.Value)
+{
+    if (member is User user)
+    {
+        Console.WriteLine($"User: {user.DisplayName}");
+    }
+    else if (member is Group group)
+    {
+        Console.WriteLine($"Group: {group.DisplayName}");
+    }
+}
+```
+
+### Add Member
+
+```csharp
+var directoryObject = new ReferenceCreate
+{
+    OdataId = $"https://graph.microsoft.com/v1.0/users/{userId}"
+};
+
+await graphClient.Groups["group-id"].Members.Ref.PostAsync(directoryObject);
+```
+
+### Remove Member
+
+```csharp
+await graphClient.Groups["group-id"].Members["user-id"].Ref.DeleteAsync();
+```
+
+### Check Membership
+
+```csharp
+var requestBody = new CheckMemberGroupsPostRequestBody
+{
+    GroupIds = new[] { "group-id-1", "group-id-2" }
+};
+
+var memberGroups = await graphClient.Users["user-id"].CheckMemberGroups.PostAsync(requestBody);
+```
+
+## Owner Management
+
+### List Owners
+
+```csharp
+var owners = await graphClient.Groups["group-id"].Owners.GetAsync();
+```
+
+### Add Owner
+
+```csharp
+var directoryObject = new ReferenceCreate
+{
+    OdataId = $"https://graph.microsoft.com/v1.0/users/{userId}"
+};
+
+await graphClient.Groups["group-id"].Owners.Ref.PostAsync(directoryObject);
+```
+
+### Remove Owner
+
+```csharp
+await graphClient.Groups["group-id"].Owners["user-id"].Ref.DeleteAsync();
+```
+
+## Additional Methods
+
+### Delta Query
+
+Get incremental changes.
+
+```csharp
+var deltaResponse = await graphClient.Groups.Delta.GetAsync();
+
+foreach (var group in deltaResponse.Value)
+{
+    Console.WriteLine($"Changed group: {group.DisplayName}");
+}
+```
+
+### Get by IDs
+
+```csharp
+var requestBody = new GetByIdsPostRequestBody
+{
+    Ids = new List<string> { "group-id-1", "group-id-2" },
+    Types = new List<string> { "group" }
+};
+
+var groups = await graphClient.DirectoryObjects.GetByIds.PostAsync(requestBody);
+```
+
+### Count Groups
+
+```csharp
+var count = await graphClient.Groups.Count.GetAsync();
+```
+
+## Group-Specific Operations
+
+### List Conversations (Microsoft 365 Groups)
+
+```csharp
+var conversations = await graphClient.Groups["group-id"].Conversations.GetAsync();
+```
+
+### List Threads
+
+```csharp
+var threads = await graphClient.Groups["group-id"]
+    .Conversations["conversation-id"]
+    .Threads.GetAsync();
+```
+
+### Access Team (for Teams-enabled groups)
+
+```csharp
+var team = await graphClient.Groups["group-id"].Team.GetAsync();
+```
+
+### Access Drive
+
+```csharp
+var drive = await graphClient.Groups["group-id"].Drive.GetAsync();
+```
+
+### List Sites
+
+```csharp
+var sites = await graphClient.Groups["group-id"].Sites.GetAsync();
+```
+
+### Calendar and Events
+
+```csharp
+// Get group calendar
+var calendar = await graphClient.Groups["group-id"].Calendar.GetAsync();
+
+// List events
+var events = await graphClient.Groups["group-id"].Events.GetAsync();
+
+// Create event
+var newEvent = new Event
+{
+    Subject = "Team Meeting",
+    Start = new DateTimeTimeZone { DateTime = "2024-03-15T14:00:00", TimeZone = "UTC" },
+    End = new DateTimeTimeZone { DateTime = "2024-03-15T15:00:00", TimeZone = "UTC" }
+};
+
+await graphClient.Groups["group-id"].Events.PostAsync(newEvent);
+```
+
+## Common Filtering Examples
+
+```csharp
+// Microsoft 365 groups only
+config.QueryParameters.Filter = "groupTypes/any(c:c eq 'Unified')";
+
+// Security groups only
+config.QueryParameters.Filter = "securityEnabled eq true and mailEnabled eq false";
+
+// Mail-enabled groups
+config.QueryParameters.Filter = "mailEnabled eq true";
+
+// Groups created after date
+config.QueryParameters.Filter = "createdDateTime ge 2024-01-01T00:00:00Z";
+
+// Dynamic groups
+config.QueryParameters.Filter = "groupTypes/any(c:c eq 'DynamicMembership')";
+```
+
+## Group Types
+
+### Microsoft 365 Group (Unified)
+
+```csharp
+GroupTypes = new[] { "Unified" },
+MailEnabled = true,
+SecurityEnabled = false
+```
+
+### Security Group
+
+```csharp
+MailEnabled = false,
+SecurityEnabled = true
+```
+
+### Mail-Enabled Security Group
+
+```csharp
+MailEnabled = true,
+SecurityEnabled = true
+```
+
+### Dynamic Group
+
+```csharp
+GroupTypes = new[] { "DynamicMembership" },
+MembershipRule = "(user.department -eq \"Engineering\")",
+MembershipRuleProcessingState = "On"
+```
+
+## Pagination
+
+```csharp
+var allGroups = new List<Group>();
+var response = await graphClient.Groups.GetAsync(config =>
+{
+    config.QueryParameters.Top = 100;
+});
+
+allGroups.AddRange(response.Value);
+
+while (response.OdataNextLink != null)
+{
+    response = await graphClient.Groups
+        .WithUrl(response.OdataNextLink)
+        .GetAsync();
+    allGroups.AddRange(response.Value);
+}
+```
+
+## Error Handling
+
+```csharp
+using Microsoft.Graph.Models.ODataErrors;
+
+try
+{
+    var group = await graphClient.Groups["invalid-id"].GetAsync();
+}
+catch (ODataError error)
+{
+    Console.WriteLine($"Error: {error.Error.Code}");
+    Console.WriteLine($"Message: {error.Error.Message}");
+}
+```
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Group Model" href="https://learn.microsoft.com/graph/api/resources/group" icon="users-rectangle">
+    Group resource properties
+  </Card>
+  <Card title="Users API" href="/api-reference/users" icon="users">
+    User management
+  </Card>
+  <Card title="Teams API" href="/api-reference/teams" icon="microsoft">
+    Teams operations
+  </Card>
+  <Card title="Directory Objects" href="/api-reference/directory-objects" icon="sitemap">
+    Base directory operations
+  </Card>
+</CardGroup>
