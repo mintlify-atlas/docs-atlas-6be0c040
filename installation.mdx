@@ -197,7 +197,7 @@ You can check the installed package version by running `dotnet list package` in 
 ### Issue: Package Restore Fails
 
 **Error message:**
-```
+```text
 Unable to find package Microsoft.Graph
 ```
 
@@ -209,7 +209,7 @@ Unable to find package Microsoft.Graph
 ### Issue: Version Conflicts
 
 **Error message:**
-```
+```text
 Version conflict detected for Microsoft.Graph.Core
 ```
 
@@ -226,7 +226,7 @@ Add explicit package references to resolve conflicts:
 ### Issue: .NET Framework Compatibility
 
 **Error message:**
-```
+```text
 Package Microsoft.Graph 5.x is not compatible with net461
 ```
 
@@ -244,7 +244,7 @@ For .NET Framework projects, ensure you're targeting at least .NET Framework 4.6
 ### Issue: Long Path Names (Windows)
 
 **Error message:**
-```
+```text
 The specified path, file name, or both are too long
 ```
 
@@ -257,7 +257,7 @@ git config --system core.longpaths true
 ```
 
 2. Set registry key:
-```
+```text
 HKLM\SYSTEM\CurrentControlSet\Control\FileSystem
 Set LongPathsEnabled to 1
 ```
@@ -337,16 +337,16 @@ Now that you have the SDK installed, you're ready to build your first Microsoft 
     Build your first Graph API call in 5 minutes
   </Card>
   
-  <Card title="Authentication Setup" icon="key" href="/authentication">
+  <Card title="Authentication Setup" icon="key" href="/core-concepts/authentication">
     Configure authentication for your application
   </Card>
   
-  <Card title="Core Concepts" icon="book" href="/core-concepts">
+  <Card title="Core Concepts" icon="book" href="/core-concepts/overview">
     Learn about request builders and models
   </Card>
   
-  <Card title="Sample Applications" icon="code" href="/samples">
-    Explore working code examples
+  <Card title="API Reference" icon="code" href="/api-reference/graph-service-client">
+    Explore the complete API reference
   </Card>
 </CardGroup>
 
